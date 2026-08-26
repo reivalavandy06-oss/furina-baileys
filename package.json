@@ -1,20 +1,29 @@
 {
-  "name": "baileys",
-  "type": "module",
-  "version": "7.0.0-rc14",
-  "description": "A WebSockets library for interacting with WhatsApp Web",
+  "name": "furina-baileys",
+  "version": "1.0.0-furina",
+  "description": "Baileys versi Furina untuk membuat bot WhatsApp dengan lebih banyak fitur dan lainnya",
   "keywords": [
     "whatsapp",
-    "automation"
+    "baileys",
+    "furina-baileys"
   ],
-  "homepage": "https://github.com/WhiskeySockets/Baileys/",
+  "homepage": "https://github.com/reivalavandy06-oss/furina-baileys",
   "repository": {
-    "url": "git@github.com:WhiskeySockets/Baileys.git"
+    "type": "git",
+    "url": "git+https://github.com/reivalavandy06-oss/furina-baileys.git"
   },
-  "license": "MIT",
-  "author": "Rajeh Taher",
-  "main": "lib/index.js",
-  "types": "lib/index.d.ts",
+  "license": "SEE LICENSE IN LICENSE",
+  "author": "Avandy",
+  "main": "./lib/cjs/index.js",
+  "module": "./lib/esm/index.js",
+  "types": "./lib/cjs/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./lib/cjs/index.d.ts",
+      "import": "./lib/esm/index.js",
+      "require": "./lib/cjs/index.js"
+    }
+  },
   "files": [
     "lib/**/*",
     "WAProto/**/*",
@@ -23,21 +32,21 @@
   "scripts": {
     "build:all": "npm run build && npm run build:docs",
     "build:docs": "typedoc",
-    "build": "tsc -P tsconfig.build.json && tsc-esm-fix --tsconfig=tsconfig.build.json --ext=.js",
+    "build": "tsc -P tsconfig.cjs.json && echo '{\"type\": \"commonjs\"}' > lib/cjs/package.json && tsc -P tsconfig.esm.json && echo '{\"type\": \"module\"}' > lib/esm/package.json",
     "changelog:last": "conventional-changelog -p angular -r 2",
     "changelog:preview": "conventional-changelog -p angular -u",
     "changelog:update": "conventional-changelog -p angular -i CHANGELOG.md -s -r 0",
     "example": "tsx ./Example/example.ts",
     "gen:protobuf": "sh WAProto/GenerateStatics.sh",
     "format": "prettier --write \"src/**/*.{ts,js,json,md}\"",
-    "lint": "tsc && eslint src --ext .js,.ts",
+    "lint": "tsc && eslint src",
     "lint:fix": "npm run format && npm run lint -- --fix",
     "prepack": "npm run build",
     "prepare": "npm run build",
     "preinstall": "node ./engine-requirements.js",
     "release": "release-it",
-    "test": "node --experimental-vm-modules ./node_modules/.bin/jest --testMatch '**/*.test.ts'",
-    "test:e2e": "NODE_TLS_REJECT_UNAUTHORIZED=0 node --experimental-vm-modules ./node_modules/.bin/jest --runInBand --forceExit --testMatch '**/*.test-e2e.ts'",
+    "test": "node --experimental-vm-modules jest --testMatch '**/*.test.ts'",
+    "test:e2e": "NODE_TLS_REJECT_UNAUTHORIZED=0 node --experimental-vm-modules jest --runInBand --forceExit --testMatch '**/*.test-e2e.ts'",
     "update:version": "tsx ./scripts/update-version.ts"
   },
   "dependencies": {
@@ -73,7 +82,6 @@
     "jiti": "^2.4.2",
     "json": "^11.0.0",
     "link-preview-js": "^3.0.0",
-    "lru-cache": "^11.1.0",
     "open": "^8.4.2",
     "pino-pretty": "^13.1.1",
     "prettier": "^3.5.3",
