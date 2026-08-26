@@ -1,7 +1,17 @@
+# ===== FURINA: BUILD & LOCAL =====
+lib/
+node_modules/
+auth_info/
+session/
+test-cjs.cjs
+test-esm.mjs
+*.log
+*.tgz
+
+# ===== ORIGINAL BAILEYS =====
 .DS_Store
 .env
 .yarn/
-*.tgz
 */.DS_Store
 auth_info*.json
 baileys_auth_info*
@@ -16,7 +26,6 @@ docs/*
 !docs/404.html
 !docs/.nojekyll
 messages*.json
-node_modules
 output.csv
 Proxy
 test.ts
