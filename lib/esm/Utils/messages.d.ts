@@ -86,6 +86,6 @@ type DownloadMediaMessageContext = {
  */
 export declare const downloadMediaMessage: <Type extends "buffer" | "stream">(message: WAMessage, type: Type, options: MediaDownloadOptions, ctx?: DownloadMediaMessageContext) => Promise<Type extends "buffer" ? Buffer<ArrayBufferLike> : Transform>;
 /** Checks whether the given message is a media message; if it is returns the inner content */
-export declare const assertMediaContent: (content: proto.IMessage | null | undefined) => proto.Message.IVideoMessage | proto.Message.IImageMessage | proto.Message.IAudioMessage | proto.Message.IDocumentMessage | proto.Message.IStickerMessage;
+export declare const assertMediaContent: (content: proto.IMessage | null | undefined) => proto.Message.IImageMessage | proto.Message.IDocumentMessage | proto.Message.IAudioMessage | proto.Message.IVideoMessage | proto.Message.IStickerMessage;
 export {};
 //# sourceMappingURL=messages.d.ts.map

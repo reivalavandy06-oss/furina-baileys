@@ -1,15 +1,13 @@
-import { DEFAULT_CONNECTION_CONFIG } from '../Defaults'
-import type { UserFacingSocketConfig } from '../Types'
 import { makeCommunitiesSocket } from './communities'
 
-// export the last socket layer
-const makeWASocket = (config: UserFacingSocketConfig) => {
-	const newConfig = {
-		...DEFAULT_CONNECTION_CONFIG,
-		...config
-	}
+export * from './chats'
+export * from './groups'
+export * from './messages-send'
+export * from './messages-recv'
+export * from './socket'
+export * from './newsletter'
+export * from './business'
+export * from './mex'
+export * from './communities'
 
-	return makeCommunitiesSocket(newConfig)
-}
-
-export default makeWASocket
+export default makeCommunitiesSocket
