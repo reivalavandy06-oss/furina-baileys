@@ -7,6 +7,9 @@ test-cjs.cjs
 test-esm.mjs
 *.log
 *.tgz
+test-connect.js
+test-connect.mjs
+test-antiban.js
 
 # ===== ORIGINAL BAILEYS =====
 .DS_Store
@@ -31,4 +34,8 @@ Proxy
 test.ts
 TestData
 wa-logs*
-coverage
+coveragetest-esm-all.mjs
+test-member-labels.js
+test-resolver-complete.js
+test-resolver.js
+test-esm-all.mjs

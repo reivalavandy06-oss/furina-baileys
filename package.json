@@ -1,6 +1,6 @@
 {
   "name": "furina-baileys",
-  "version": "1.0.0-furina",
+  "version": "1.0.2-furina",
   "description": "Baileys versi Furina untuk membuat bot WhatsApp dengan lebih banyak fitur dan lainnya",
   "keywords": [
     "whatsapp",
@@ -30,9 +30,13 @@
     "engine-requirements.js"
   ],
   "scripts": {
+    "clean": "node -e \"require('fs').rmSync('lib', {recursive: true, force: true})\"",
+    "build:cjs": "tsc -P tsconfig.cjs.json && node -e \"require('fs').writeFileSync('lib/cjs/package.json', '{\\\"type\\\": \\\"commonjs\\\"}')\"",
+    "build:esm": "tsc -P tsconfig.esm.json && npx tsc-esm-fix --target='lib/esm' && node -e \"require('fs').writeFileSync('lib/esm/package.json', '{\\\"type\\\": \\\"module\\\"}')\"",
+    "build:proto": "node -e \"require('fs').cpSync('WAProto', 'lib/WAProto', {recursive: true})\"",
+    "build": "npm run clean && npm run build:cjs && npm run build:esm && npm run build:proto",
     "build:all": "npm run build && npm run build:docs",
     "build:docs": "typedoc",
-    "build": "tsc -P tsconfig.cjs.json && echo '{\"type\": \"commonjs\"}' > lib/cjs/package.json && tsc -P tsconfig.esm.json && echo '{\"type\": \"module\"}' > lib/esm/package.json",
     "changelog:last": "conventional-changelog -p angular -r 2",
     "changelog:preview": "conventional-changelog -p angular -u",
     "changelog:update": "conventional-changelog -p angular -i CHANGELOG.md -s -r 0",

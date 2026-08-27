@@ -761,6 +761,24 @@ export const makeSocket = (config: SocketConfig) => {
 		void end(new Boom(msg || 'Intentional Logout', { statusCode: DisconnectReason.loggedOut }))
 	}
 
+	// wa pairing-code validator rejects custom os labels like "Furina-Baileys".
+// normalize to canonical values so custom browser names keep working (upstream #2559)
+const getPairingCodePlatform = (browser: string[]) => {
+	const known: { [k: string]: { id: string; name: string } } = {
+		Chrome: { id: '1', name: 'Chrome' },
+		Firefox: { id: '2', name: 'Firefox' },
+		IE: { id: '3', name: 'IE' },
+		Opera: { id: '4', name: 'Opera' },
+		Safari: { id: '5', name: 'Safari' },
+		Edge: { id: '6', name: 'Edge' }
+	}
+	const knownOs = ['Mac OS', 'Windows', 'Ubuntu']
+	const b = known[browser[1] ?? 'Chrome'] ?? { id: '1', name: 'Chrome' }
+	const osName = browser[0] ?? 'Mac OS'
+	const os = knownOs.includes(osName) ? osName : 'Mac OS'
+	return { id: b.id, display: `${b.name} (${os})` }
+}
+
 	const requestPairingCode = async (phoneNumber: string, customPairingCode?: string): Promise<string> => {
 		const pairingCode = customPairingCode ?? bytesToCrockford(randomBytes(5))
 
@@ -806,12 +824,12 @@ export const makeSocket = (config: SocketConfig) => {
 						{
 							tag: 'companion_platform_id',
 							attrs: {},
-							content: getCompanionPlatformId(browser)
+							content: getPairingCodePlatform(browser).id
 						},
 						{
 							tag: 'companion_platform_display',
 							attrs: {},
-							content: `${browser[1]} (${browser[0]})`
+							content: getPairingCodePlatform(browser).display
 						},
 						{
 							tag: 'link_code_pairing_nonce',
