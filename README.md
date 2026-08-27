@@ -1310,3 +1310,50 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
 Thus, the maintainers of the project can't be held liable for any potential misuse of this project.
+
+## 📜 License & Attribution
+
+### English
+This library is licensed under the **Apache License 2.0** with attribution requirements.
+
+**Copyright:**
+- WhiskeySockets/Baileys (2025) - Original project
+- Avandy (2026) - Modifications & additional features
+
+**Attribution Requirement:**
+If you use, modify, or distribute this library, you **MUST** credit:
+- **Original Creators:** WhiskeySockets
+- **Modifications & Features:** Avandy
+- **Repository:** https://github.com/reivalavandy06-oss/furina-baileys
+
+**How to Credit:**
+```markdown
+Built with [Furina-Baileys](https://github.com/reivalavandy06-oss/furina-baileys)
+Based on [WhiskeySockets/Baileys](https://github.com/WhiskeySockets/Baileys)
+Modifications & Features by Avandy
+```
+
+**Forking Policy:**
+Forking is permitted ONLY if you maintain proper attribution. Forks that remove or modify attribution without permission will be subject to DMCA takedown notices.
+
+### Bahasa Indonesia
+Library ini dilisensikan di bawah **Apache License 2.0** dengan syarat atribusi.
+
+**Hak Cipta:**
+- WhiskeySockets/Baileys (2025) - Proyek asli
+- Avandy (2026) - Modifikasi & fitur tambahan
+
+**Syarat Atribusi:**
+Jika Anda menggunakan, memodifikasi, atau mendistribusikan library ini, Anda **WAJIB** memberikan kredit kepada:
+- **Pembuat Asli:** WhiskeySockets
+- **Modifikasi & Fitur:** Avandy
+- **Repository:** https://github.com/reivalavandy06-oss/furina-baileys
+
+**Kebijakan Forking:**
+Forking diizinkan HANYA jika Anda mempertahankan atribusi yang tepat. Fork yang menghapus atau mengubah atribusi tanpa izin akan dikenakan DMCA takedown notice.
+
+**Pelanggaran:**
+Penggunaan tanpa atribusi yang tepat dapat mengakibatkan:
+- DMCA takedown notice
+- Report ke GitHub/NPM
+- Tindakan hukum untuk pelanggaran hak cipta
