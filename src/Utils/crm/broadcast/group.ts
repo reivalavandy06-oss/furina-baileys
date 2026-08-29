@@ -1,10 +1,5 @@
 // group.ts — utility group + kategorisasi struktur komunitas WA
-// 4 kategori (dari metadata asli):
-//   community-parent       : wadah komunitas (isCommunity: true) — bukan chat, nggak bisa dikirim
-//   community-announcement : group pengumuman (isCommunityAnnounce: true)
-//   community-member       : group biasa di dalam komunitas (linkedParent)
-//   regular                : group biasa
-// Induk & pengumuman sering bernama SAMA → wajib dilabel biar nggak dikira duplikat
+// FIX: stripDevice sekarang preserve domain (@s.whatsapp.net / @lid)
 
 export type CRMGroupCategory =
 	| 'regular'
@@ -33,7 +28,6 @@ export interface CRMGroupDetail extends CRMGroupInfo {
 }
 
 function categorizeGroup(meta: any): { category: CRMGroupCategory; communityJid: string | null } {
-	// Induk komunitas: container, bukan tempat chat
 	if (meta.isCommunity) {
 		return { category: 'community-parent', communityJid: meta.id ?? null }
 	}
@@ -74,9 +68,16 @@ export function filterGroupsByCategory(
 	return groups.filter((g) => !exclude.includes(g.category))
 }
 
+// FIXED: buang suffix device tapi PERTAHANKAN domain
+// '6288216448588:52@s.whatsapp.net' → '6288216448588@s.whatsapp.net'
+// '90525747179521:52@lid' → '90525747179521@lid'
 function stripDevice(jid: string): string {
 	if (!jid) return ''
-	return jid.split(':')[0] ?? ''
+	const atIdx = jid.indexOf('@')
+	if (atIdx === -1) return jid.split(':')[0] ?? ''
+	const user = jid.slice(0, atIdx).split(':')[0] ?? ''
+	const server = jid.slice(atIdx)
+	return user + server
 }
 
 function getBotIdentities(sock: any): string[] {
@@ -116,9 +117,6 @@ export async function getGroupDetail(sock: any, groupJid: string): Promise<CRMGr
 			.map((p: any) => p.id)
 
 		const { category, communityJid } = categorizeGroup(meta)
-
-		// Induk komunitas = container, pasti nggak bisa dikirim
-		// Announcement = bisa dicoba (sukses kalau bot admin komunitas)
 		const canSendMessage = category !== 'community-parent'
 
 		return {

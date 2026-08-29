@@ -22,9 +22,6 @@ baileys_store*.json
 browser-messages.json
 browser-token.json
 decoded-ws.json
-docs
-!docs/
-docs/*
 !docs/index.html
 !docs/404.html
 !docs/.nojekyll
@@ -48,3 +45,4 @@ fix-*.sh
 scripts/patch-*.js
 furina-broadcast-channel.json
 *.backup
+!docs/*.md
