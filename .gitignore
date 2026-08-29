@@ -39,3 +39,12 @@ test-member-labels.js
 test-resolver-complete.js
 test-resolver.js
 test-esm-all.mjs
+
+# ===== FURINA: LOCAL TEST / DEBUG / RUNTIME =====
+test-*.js
+test-*.mjs
+debug-*.js
+fix-*.sh
+scripts/patch-*.js
+furina-broadcast-channel.json
+*.backup
