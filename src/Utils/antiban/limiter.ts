@@ -13,6 +13,9 @@ export class RateLimiter {
 
 	// explicit return type: recursive async method needs it under strict mode
 	async take(): Promise<void> {
+		// Guard: max <= 0 artinya nggak ada kuota, nggak ada gunanya nunggu
+		if (this.max <= 0) return
+
 		const now = Date.now()
 		this.stamps = this.stamps.filter((t) => now - t < this.windowMs)
 
