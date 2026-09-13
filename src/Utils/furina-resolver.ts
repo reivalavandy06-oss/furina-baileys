@@ -1,23 +1,31 @@
-// Furina Resolver - Complete WhatsApp identity resolver
-// Combines LID mapping, USync queries, and legacy resolvers into one powerful tool
+// furina-baileys — furina-resolver.ts
+// WhatsApp identity resolver: LID ↔ PN bidirectional + USync queries + link utils.
+//
+// Cakupan:
+//   - Resolve LID → PN / PN → LID
+//   - Cari user via username (USync)
+//   - Auto-detect format input (JID / nomor / username)
+//   - Generate wa.me link dari identifier
+//   - Parse link WhatsApp (wa.me / chat.whatsapp.com) jadi JID
+//   - Bulk resolve dengan chunk (hindari rate-limit)
 
-import { getLIDResolver, type LIDResolver, type FurinaLIDMapping } from './lid-resolver'
+import { getLIDResolver, type LIDResolver, type FurinaLIDMapping, normalizeJid } from './lid-resolver'
 import { getUSyncResolver, type USyncResolver, type UserInfo } from './usync-resolver'
 
-// Re-export types for convenience
+// Re-export types biar user nggak perlu import dari 2 file berbeda
 export { FurinaLIDMapping, UserInfo }
 
-// ===== LEGACY HELPERS (backward compatibility) =====
+// ===== FURINA: LEGACY HELPERS =====
 
 export const isNewsletter = (jid?: string) => !!jid && jid.endsWith('@newsletter')
 export const isGroup = (jid?: string) => !!jid && jid.endsWith('@g.us')
 export const isLID = (jid?: string) => !!jid && jid.endsWith('@lid')
 export const isUser = (jid?: string) => !!jid && (jid.endsWith('@s.whatsapp.net') || isLID(jid))
 
-// ===== ADVANCED RESOLVER INTERFACE =====
+// ===== FURINA: RESOLVER INTERFACE =====
 
 export interface FurinaResolver {
-	// LID/PN bidirectional resolution
+	// LID ↔ PN bidirectional
 	resolveLID(pn: string): Promise<string | null>
 	resolvePN(lid: string): Promise<string | null>
 
@@ -26,18 +34,29 @@ export interface FurinaResolver {
 	fetchUserInfo(jid: string): Promise<UserInfo | null>
 	fetchStatus(jid: string): Promise<string | null>
 
-	// Target resolution (smart auto-detect)
+	// Smart auto-detect input (JID / nomor / username)
 	resolveTarget(target: string): Promise<string | null>
+
+	// Link utils
+	toWhatsAppLink(target: string): Promise<string | null>
+	fromWhatsAppLink(link: string): Promise<string | null>
+
+	// Bulk resolve
+	resolveMany(targets: string[]): Promise<Array<string | null>>
 
 	// Cache management
 	getLIDMapping(lid: string): FurinaLIDMapping | null
 	getAllMappings(): FurinaLIDMapping[]
 	clearCache(): void
 
-	// Direct access to sub-resolvers
+	// Direct access ke sub-resolver
 	lid: LIDResolver
 	usync: USyncResolver
 }
+
+// Chunk size untuk bulk resolve. WhatsApp mulai rate-limit kalau
+// kirim >10 query serentak. 5 aman.
+const BULK_CHUNK_SIZE = 5
 
 export function createFurinaResolver(sock: any): FurinaResolver {
 	const lid = getLIDResolver(sock)
@@ -47,6 +66,8 @@ export function createFurinaResolver(sock: any): FurinaResolver {
 		lid,
 		usync,
 
+		// ===== LID ↔ PN =====
+
 		async resolveLID(pn: string): Promise<string | null> {
 			return lid.resolveLID(pn)
 		},
@@ -54,6 +75,8 @@ export function createFurinaResolver(sock: any): FurinaResolver {
 		async resolvePN(lidJid: string): Promise<string | null> {
 			return lid.resolvePN(lidJid)
 		},
+
+		// ===== USync =====
 
 		async searchByUsername(username: string): Promise<UserInfo | null> {
 			return usync.searchByUsername(username)
@@ -67,31 +90,107 @@ export function createFurinaResolver(sock: any): FurinaResolver {
 			return usync.fetchStatus(jid)
 		},
 
-		async resolveTarget(target: string): Promise<string | null> {
-			// Smart auto-detect based on input type
-			const normalized = target.trim()
+		// ===== SMART RESOLVE =====
 
-			// Already a JID
-			if (normalized.includes('@')) {
-				return normalized
+		async resolveTarget(target: string): Promise<string | null> {
+			if (!target || typeof target !== 'string') return null
+
+			const t = target.trim()
+			if (!t) return null
+
+			// 1. Sudah JID (ada @) — normalisasi device suffix
+			if (t.includes('@')) {
+				return normalizeJid(t)
 			}
 
-			// Phone number (all digits, optionally with +)
-			if (/^\+?\d+$/.test(normalized)) {
-				const pn = normalized.replace(/^\+/, '') + '@s.whatsapp.net'
+			// 2. Nomor telepon (8-15 digit, optional +)
+			if (/^\+?\d{8,15}$/.test(t)) {
+				const pn = t.replace(/\D/g, '') + '@s.whatsapp.net'
+				// Coba convert ke LID — kalau ada, pakai LID (identifier utama WA modern)
 				const lidResult = await lid.resolveLID(pn)
 				return lidResult ?? pn
 			}
 
-			// Username (contains letters/symbols)
-			if (/[a-zA-Z]/.test(normalized)) {
-				const userInfo = await usync.searchByUsername(normalized)
-				if (userInfo?.lid) return userInfo.lid
-				if (userInfo?.pn) return userInfo.pn
+			// 3. Username (mengandung huruf/simbol selain digit)
+			if (/[a-zA-Z]/.test(t)) {
+				const userInfo = await usync.searchByUsername(t)
+				return userInfo?.lid ?? userInfo?.pn ?? userInfo?.jid ?? null
 			}
 
 			return null
 		},
+
+		// ===== LINK UTILS =====
+
+		async toWhatsAppLink(target: string): Promise<string | null> {
+			let jid = await this.resolveTarget(target)
+			if (!jid) return null
+
+			// Group & newsletter: butuh invite link, bukan wa.me
+			if (isGroup(jid) || isNewsletter(jid)) return null
+
+			// LID: coba resolve ke PN dulu. Kalau nggak dapet, return null
+			// (wa.me butuh nomor telepon, bukan LID)
+			if (isLID(jid)) {
+				const pn = await lid.resolvePN(jid)
+				if (!pn) return null
+				jid = pn
+			}
+
+			// Ekstrak user (strip device suffix + server)
+			const userPart = jid.split('@')[0]?.split(':')[0]
+
+			// Validasi: harus angka murni
+			if (!userPart || !/^\d+$/.test(userPart)) return null
+
+			return `https://wa.me/${userPart}`
+		},
+
+		async fromWhatsAppLink(link: string): Promise<string | null> {
+			if (!link || typeof link !== 'string') return null
+
+			const trimmed = link.trim()
+
+			// Format 1: wa.me/62XXX atau api.whatsapp.com/send?phone=62XXX
+			const waMatch = trimmed.match(/(?:wa\.me\/|api\.whatsapp\.com\/send\?phone=)(\d+)/)
+			if (waMatch) {
+				return `${waMatch[1]}@s.whatsapp.net`
+			}
+
+			// Format 2: chat.whatsapp.com/XXXX (group invite code)
+			const groupMatch = trimmed.match(/chat\.whatsapp\.com\/([A-Za-z0-9_-]+)/)
+			if (groupMatch) {
+				try {
+					const info = await sock.groupGetInviteInfo(groupMatch[1])
+					return info?.id ?? null
+				} catch {
+					return null
+				}
+			}
+
+			return null
+		},
+
+		// ===== BULK RESOLVE =====
+
+		async resolveMany(targets: string[]): Promise<Array<string | null>> {
+			if (!Array.isArray(targets) || targets.length === 0) return []
+
+			const results: Array<string | null> = []
+
+			// Chunk buat hindari rate-limit WhatsApp
+			for (let i = 0; i < targets.length; i += BULK_CHUNK_SIZE) {
+				const chunk = targets.slice(i, i + BULK_CHUNK_SIZE)
+				const chunkResults = await Promise.all(
+					chunk.map((t) => this.resolveTarget(t))
+				)
+				results.push(...chunkResults)
+			}
+
+			return results
+		},
+
+		// ===== CACHE =====
 
 		getLIDMapping(lidStr: string): FurinaLIDMapping | null {
 			return lid.getMapping(lidStr)
@@ -103,11 +202,13 @@ export function createFurinaResolver(sock: any): FurinaResolver {
 
 		clearCache(): void {
 			lid.clearCache()
-		}
+		},
 	}
 }
 
-// Legacy compatibility wrappers
+// ===== FURINA: STANDALONE WRAPPERS (backward compat) =====
+// Tetap ada biar kode lama yang import function langsung nggak breaking.
+
 export const resolveTarget = async (sock: any, target: string): Promise<string | null> => {
 	const resolver = createFurinaResolver(sock)
 	return resolver.resolveTarget(target)
@@ -120,7 +221,17 @@ export const searchByUsername = async (sock: any, username: string) => {
 	return resolver.searchByUsername(username)
 }
 
-export const getNewsletterInfo = async (sock: any, jidOrInvite: string) => {
-	// TODO: Implement newsletter info fetching
+export const toWhatsAppLink = async (sock: any, target: string): Promise<string | null> => {
+	const resolver = createFurinaResolver(sock)
+	return resolver.toWhatsAppLink(target)
+}
+
+export const fromWhatsAppLink = async (sock: any, link: string): Promise<string | null> => {
+	const resolver = createFurinaResolver(sock)
+	return resolver.fromWhatsAppLink(link)
+}
+
+// TODO: newsletter info fetching (belum diimplementasi di upstream)
+export const getNewsletterInfo = async (_sock: any, _jidOrInvite: string) => {
 	return null
 }

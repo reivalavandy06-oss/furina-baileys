@@ -1,5 +1,18 @@
-// LID Resolver - Complete bidirectional mapping system
-// Handles LID ↔ PN (Phone Number) conversion with auto-population from messages
+// furina-baileys — lid-resolver.ts
+// Bidirectional LID ↔ PN mapping dengan auto-populate dari berbagai event.
+//
+// Sumber mapping:
+//   1. messages.upsert       → group (participant/participantAlt) + private (remoteJid/remoteJidAlt)
+//   2. lid-mapping.update    → event resmi dari Baileys
+//   3. messaging-history.set → batch sync saat bot pertama connect
+//   4. contacts.upsert       → kontak baru disave
+//   5. contacts.update       → kontak yang berubah
+//
+// Keterbatasan:
+//   LID → PN cuma bisa dari cache/signalRepository. USync nggak support arah ini
+//   karena WhatsApp sengaja sembunyiin PN dari LID untuk privacy.
+
+import type { Contact } from '../Types'
 
 export interface FurinaLIDMapping {
 	lid: string
@@ -10,6 +23,16 @@ export interface FurinaLIDMapping {
 export interface LIDResolverConfig {
 	maxCacheSize?: number
 	autoPopulate?: boolean
+}
+
+// Normalisasi JID: buang device suffix (123456:0@lid → 123456@lid).
+// Tanpa ini, mapping ke-store dua kali untuk device berbeda.
+export function normalizeJid(jid: string): string {
+	if (!jid) return jid
+	const at = jid.indexOf('@')
+	if (at === -1) return jid
+	const user = jid.slice(0, at).split(':')[0]
+	return `${user}${jid.slice(at)}`
 }
 
 export class LIDResolver {
@@ -29,113 +52,167 @@ export class LIDResolver {
 		}
 	}
 
+	// ===== FURINA: EVENT LISTENERS =====
+
 	private attachEventListeners() {
-		// Auto-populate from incoming messages
+		// Pesan masuk & pesan sendiri (fromMe nggak di-skip — bot butuh capture
+		// mapping saat dia kirim ke LID juga)
 		this.sock.ev.on('messages.upsert', async ({ messages }: any) => {
 			for (const msg of messages) {
 				await this.extractAndStoreMapping(msg)
 			}
 		})
 
-		// Auto-populate from lid-mapping.update events (if available)
+		// Event resmi Baileys saat mapping baru diketahui
 		this.sock.ev.on('lid-mapping.update', async ({ lid, pn }: any) => {
-			await this.storeMapping(lid, pn)
+			if (lid && pn) await this.storeMapping(lid, pn)
+		})
+
+		// History sync saat bot pertama connect — batch besar mapping
+		this.sock.ev.on('messaging-history.set', async (data: any) => {
+			if (Array.isArray(data?.contacts)) {
+				for (const c of data.contacts) await this.extractFromContact(c)
+			}
+			if (Array.isArray(data?.lidPnMappings)) {
+				for (const pair of data.lidPnMappings) {
+					if (pair?.lid && pair?.pn) await this.storeMapping(pair.lid, pair.pn)
+				}
+			}
+		})
+
+		// Kontak baru disave → mapping muncul
+		this.sock.ev.on('contacts.upsert', async (contacts: Contact[]) => {
+			for (const c of contacts) await this.extractFromContact(c)
+		})
+
+		// Kontak yang di-update
+		this.sock.ev.on('contacts.update', async (updates: Partial<Contact>[]) => {
+			for (const c of updates) await this.extractFromContact(c)
 		})
 	}
 
+	// ===== FURINA: EXTRACTION =====
+
 	private async extractAndStoreMapping(msg: any) {
-		if (!msg.key) return
+		if (!msg?.key) return
 
-		const { participant, participantAlt, remoteJid } = msg.key
-		const fromMe = msg.key.fromMe
+		const { participant, participantAlt, remoteJid, remoteJidAlt } = msg.key
 
-		if (fromMe) return
+		// Kumpulin semua kandidat dari group + private
+		const candidates = [participant, participantAlt, remoteJid, remoteJidAlt].filter(
+			(j): j is string => typeof j === 'string' && j.length > 0
+		)
 
-		// Try to extract LID and PN from message
-		const lid = participant?.includes('@lid') ? participant : participantAlt?.includes('@lid') ? participantAlt : null
-		const pn = participant?.includes('@s.whatsapp.net') ? participant : participantAlt?.includes('@s.whatsapp.net') ? participantAlt : null
+		const lidJids = candidates.filter((j) => j.endsWith('@lid'))
+		const pnJids = candidates.filter((j) => j.endsWith('@s.whatsapp.net') || j.endsWith('@hosted'))
 
-		if (lid && pn) {
-			await this.storeMapping(lid, pn)
+		// Butuh minimal 1 LID + 1 PN untuk bikin mapping
+		if (!lidJids.length || !pnJids.length) return
+
+		for (const lid of lidJids) {
+			for (const pn of pnJids) {
+				await this.storeMapping(lid, pn)
+			}
 		}
 	}
 
+	private async extractFromContact(c: Partial<Contact>) {
+		if (!c) return
+
+		const lid = c.lid ?? (c.id?.endsWith('@lid') ? c.id : null)
+		const pn = c.phoneNumber ?? (c.id?.endsWith('@s.whatsapp.net') ? c.id : null)
+
+		if (lid && pn) await this.storeMapping(lid, pn)
+	}
+
+	// ===== FURINA: STORAGE =====
+
 	async storeMapping(lid: string, pn: string) {
+		const normLid = normalizeJid(lid)
+		const normPn = normalizeJid(pn)
 		const timestamp = Date.now()
-		const mapping: FurinaLIDMapping = { lid, pn, timestamp }
+		const mapping: FurinaLIDMapping = { lid: normLid, pn: normPn, timestamp }
 
-		// Store forward mapping (LID -> PN)
-		this.mappings.set(lid, mapping)
+		this.mappings.set(normLid, mapping)
+		this.reverseMappings.set(normPn, mapping)
 
-		// Store reverse mapping (PN -> LID)
-		this.reverseMappings.set(pn, mapping)
-
-		// Enforce cache size limit
+		// Enforce cache size — buang yang paling lama
 		if (this.mappings.size > this.maxCacheSize) {
 			const oldestKey = this.mappings.keys().next().value
 			if (oldestKey) {
-				const oldMapping = this.mappings.get(oldestKey)
-				if (oldMapping) {
+				const old = this.mappings.get(oldestKey)
+				if (old) {
 					this.mappings.delete(oldestKey)
-					this.reverseMappings.delete(oldMapping.pn)
+					this.reverseMappings.delete(old.pn)
 				}
 			}
 		}
 
-		// Try to store in signalRepository if available
+		// Sinkron ke signalRepository biar persist antar restart
 		try {
 			if (this.sock.signalRepository?.lidMapping?.storeLIDPNMappings) {
-				await this.sock.signalRepository.lidMapping.storeLIDPNMappings([{ lid, pn }])
+				await this.sock.signalRepository.lidMapping.storeLIDPNMappings([{ lid: normLid, pn: normPn }])
 			}
-		} catch (e) {
-			// Silent fail if signalRepository not available
+		} catch {
+			// signalRepository opsional
 		}
 	}
 
+	// ===== FURINA: RESOLVE =====
+
 	async resolveLID(pn: string): Promise<string | null> {
-		// Check cache first
-		const cached = this.reverseMappings.get(pn)
+		const normPn = normalizeJid(pn)
+
+		// 1. Cache internal
+		const cached = this.reverseMappings.get(normPn)
 		if (cached) return cached.lid
 
-		// Try signalRepository
+		// 2. signalRepository (sumber resmi)
 		try {
-			if (this.sock.signalRepository?.lidMapping?.getLIDForPN) {
-				const lid = await this.sock.signalRepository.lidMapping.getLIDForPN(pn)
-				if (lid) {
-					await this.storeMapping(lid, pn)
-					return lid
-				}
+			const lid = await this.sock.signalRepository?.lidMapping?.getLIDForPN?.(normPn)
+			if (lid) {
+				await this.storeMapping(lid, normPn)
+				return normalizeJid(lid)
 			}
-		} catch (e) {
-			// Silent fail
+		} catch {
+			// silent — signalRepository opsional
 		}
 
 		return null
 	}
 
 	async resolvePN(lid: string): Promise<string | null> {
-		// Check cache first
-		const cached = this.mappings.get(lid)
+		const normLid = normalizeJid(lid)
+
+		// 1. Cache internal
+		const cached = this.mappings.get(normLid)
 		if (cached) return cached.pn
 
-		// Try signalRepository
+		// 2. signalRepository
 		try {
-			if (this.sock.signalRepository?.lidMapping?.getPNForLID) {
-				const pn = await this.sock.signalRepository.lidMapping.getPNForLID(lid)
-				if (pn) {
-					await this.storeMapping(lid, pn)
-					return pn
-				}
+			const pn = await this.sock.signalRepository?.lidMapping?.getPNForLID?.(normLid)
+			if (pn) {
+				const normPn = normalizeJid(pn)
+				await this.storeMapping(normLid, normPn)
+				return normPn
 			}
-		} catch (e) {
-			// Silent fail
+		} catch {
+			// silent
 		}
 
+		// 3. Miss — USync nggak support arah LID → PN (limitation WhatsApp).
+		// Mapping cuma bisa dari pesan masuk / history sync / contacts.
+		console.debug(
+			`[furina-resolver] resolvePN miss: ${lid}. ` +
+			`Mapping belum ke-capture. LID → PN nggak bisa lewat USync.`
+		)
 		return null
 	}
 
+	// ===== FURINA: CACHE ACCESS =====
+
 	getMapping(lid: string): FurinaLIDMapping | null {
-		return this.mappings.get(lid) ?? null
+		return this.mappings.get(normalizeJid(lid)) ?? null
 	}
 
 	getAllMappings(): FurinaLIDMapping[] {
@@ -148,7 +225,7 @@ export class LIDResolver {
 	}
 }
 
-// Singleton manager for global resolver instances
+// Singleton per socket
 const resolverInstances = new WeakMap<any, LIDResolver>()
 
 export function getLIDResolver(sock: any, config?: LIDResolverConfig): LIDResolver {
