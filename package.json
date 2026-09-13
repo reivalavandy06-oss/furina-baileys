@@ -35,6 +35,7 @@
     "engine-requirements.js"
   ],
   "scripts": {
+    "test:antiban": "node tests/antiban/run.js",
     "clean": "node -e \"require('fs').rmSync('lib', {recursive: true, force: true})\"",
     "build:cjs": "tsc -P tsconfig.cjs.json && node -e \"require('fs').writeFileSync('lib/cjs/package.json', '{\\\"type\\\": \\\"commonjs\\\"}')\"",
     "build:esm": "tsc -P tsconfig.esm.json && npx tsc-esm-fix --target='lib/esm' && node -e \"require('fs').writeFileSync('lib/esm/package.json', '{\\\"type\\\": \\\"module\\\"}')\"",
