@@ -1,0 +1,10 @@
+Media/
+tests/
+*.bak
+*.bak-split
+debug-*.js
+auth_info*
+.npmrc
+.git/
+.github/
+*.log
