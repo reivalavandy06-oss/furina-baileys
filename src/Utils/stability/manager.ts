@@ -19,7 +19,7 @@ const DEFAULT_CONFIG: Required<Omit<StabilityConfig, 'onLog'>> = {
 	jitter: 500,
 	autoPauseAfter: 3,
 	autoPauseDuration: 10 * 60 * 1000, // 10 minutes
-	logLevel: 'warn',
+	logLevel: 'error',
 	stealthMode: true,
 }
 

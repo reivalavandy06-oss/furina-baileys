@@ -6,6 +6,7 @@ import type { AuthenticationState, LIDMapping, SignalAuthState, TransactionCapab
 import type { GroupMetadata } from './GroupMetadata'
 import { type MediaConnInfo, type WAMessageKey } from './Message'
 import type { SignalRepositoryWithLIDStore } from './Signal'
+import type { StabilityConfig } from '../Utils/stability'
 
 export type WAVersion = [number, number, number]
 export type WABrowserDescription = [string, string, string]
@@ -150,4 +151,11 @@ export type SocketConfig = {
 		logger: ILogger,
 		pnToLIDFunc?: (jids: string[]) => Promise<LIDMapping[] | undefined>
 	) => SignalRepositoryWithLIDStore
+
+	/** FURINA: Stability layer config.
+	 * - undefined → default ON (pakai DEFAULT_CONFIG di stability/manager.ts)
+	 * - false → matiin
+	 * - object → custom config
+	 */
+	stability?: boolean | StabilityConfig
 }
