@@ -8,7 +8,7 @@ WhatsApp Web API library dengan **stabilitas koneksi**, **kelengkapan button int
 
 Built on top of [WhiskeySockets/Baileys](https://github.com/WhiskeySockets/Baileys).
 
-`v1.0.5-furina` · TypeScript · Dual CJS/ESM · 🎬 [Demo Video](Media/furina-demo.mp4)
+`v1.0.6-furina` · TypeScript · Dual CJS/ESM · 🎬 [Demo Video](Media/furina-demo.mp4)
 
 [![npm version](https://img.shields.io/npm/v/furina-baileys.svg)](https://www.npmjs.com/package/furina-baileys)
 [![License](https://img.shields.io/npm/l/furina-baileys.svg)](LICENSE)
@@ -34,11 +34,13 @@ Built on top of [WhiskeySockets/Baileys](https://github.com/WhiskeySockets/Baile
 - [🆔 Furina Resolver](#-furina-resolver)
 - [🔘 Button Interaktif](#-button-interaktif)
 - [🎠 Carousel](#-carousel)
+- [🔨 MessageBuilder](#-messagebuilder)
 - [📊 Button Tracker](#-button-tracker)
 - [⚠️ Region & Asset-Gated Buttons](#️-region--asset-gated-buttons)
 - [🏪 Business Account Notes](#-business-account-notes)
 - [📚 API Reference](#-api-reference)
 - [🐛 Troubleshooting](#-troubleshooting)
+- [⚠️ Known Limitations](#️-known-limitations)
 - [📄 License](#-license)
 
 ---
@@ -47,7 +49,7 @@ Built on top of [WhiskeySockets/Baileys](https://github.com/WhiskeySockets/Baile
 
 Most WhatsApp libraries give you raw socket access and leave the rest to you. Furina-Baileys adds production features that take weeks to build:
 
-- **🛰️ Stability layer** — Auto-reconnect tangguh, exponential backoff, stealth mode untuk reconnects
+- **🛰️ Stability layer** — Monitor koneksi + stats (`sock.stability.getStats()`), exponential backoff calculator, stealth mode buat reconnect delay. **Catatan:** library nggak auto-reconnect — user tetap panggil `makeWASocket` ulang berdasarkan stats
 - **🔘 Button set terlengkap** — 17 tipe native + 4 modifier message-level, verified on-device
 - **🗂️ CRM system** — Track customers, conversations, activity, analytics
 - **📨 Broadcast automation** — Personal/group/channel dengan anti-ban delays (Gaussian, rate cap)
@@ -55,7 +57,8 @@ Most WhatsApp libraries give you raw socket access and leave the rest to you. Fu
 - **🛡️ Anti-BAN protection** — Health monitor, auto-pause, stealth composing
 - **🆔 Custom pairing code** — `requestPairingCode(phone, customCode)` tanpa error conflict ID
 - **🌐 Custom browser identity** — `Browsers.ubuntu/macOS/baileys/windows/android/appropriate`
-- **🆔 Identity resolver** — LID mapping, USync queries, legacy helpers dalam satu interface
+- **🔨 MessageBuilder** — Fluent builder buat compose pesan kompleks. Dual-path: `sendMessage` untuk simple, `relayMessage` + `additionalNodes` untuk button/carousel. Auto-inject node `bot` di private chat
+- **🆔 Identity resolver** — LID mapping bidirectional, USync queries, link utils (`wa.me` generator + parser), bulk resolve, legacy helpers
 
 You still get full Baileys API access. This just handles the boring stuff so you can focus on your bot logic.
 
@@ -252,42 +255,119 @@ const sock = makeWASocket({
 
 ## 🛡️ Stability Layer
 
-Auto-reconnect dengan exponential backoff dan stealth mode aktif by default.
+Connection monitoring dengan structured logging, backoff calculator, dan stealth mode. Aktif by default, akses via `sock.stability`.
 
-### What It Does
+> [!IMPORTANT]
+> Library ini **tidak auto-reconnect**. Stability layer cuma ngasih: stats, backoff delay calculator, dan saran kapan harus reconnect. User tetap yang panggil `makeWASocket` ulang.
 
-- **Auto-reconnect** — Connection putus? Reconnect otomatis dengan exponential backoff
-- **Keep-alive tuning** — Ping interval optimal buat mobile/network tidak stabil
-- **Stealth mode** — Presence composing saat reconnect biar nggak detectable
-- **Auto-recovery** — Session recovery otomatis kalau auth corrupt
-
-### Example with Stability
+### Access Stability
 
 ```javascript
-const sock = makeWASocket({
-  auth: state,
-  // Stability features aktif otomatis
-})
+const sock = makeWASocket({ auth: state })
+const stability = sock.stability
+const stats = stability.getStats()
 
-sock.ev.on('connection.update', (update) => {
-  const { connection, lastDisconnect } = update
-  
-  if (connection === 'close') {
-    const reason = lastDisconnect?.error?.output?.statusCode
-    
-    if (reason === DisconnectReason.loggedOut) {
-      console.log('Logged out, need to re-pair')
-      // Clear auth dan re-pair
-    } else {
-      console.log(`Connection closed (${reason}), auto-reconnecting...`)
-      // Library akan auto-reconnect
-    }
-  }
+console.log({
+  totalErrors: stats.totalErrors,
+  reconnectAttempts: stats.reconnectAttempts,
+  isPaused: stats.isPaused,
+  pausedUntil: stats.pausedUntil,
 })
 ```
 
----
+### Opt-Out & Custom Config
 
+```javascript
+// Matiin stability layer
+const sock = makeWASocket({ auth: state, stability: false })
+
+// Custom config
+const sock = makeWASocket({
+  auth: state,
+  stability: {
+    maxRetries: 10,
+    baseReconnectDelay: 5000,
+    autoPauseAfter: 5,
+    stealthMode: true,
+    logLevel: 'info',
+    onLog: (level, msg) => console.log(`[stability][${level}]`, msg),
+  },
+})
+```
+
+### StabilityConfig Reference
+
+| Field | Default | Deskripsi |
+|---|---|---|
+| `autoRecovery` | `true` | Cek apakah disconnect recoverable |
+| `maxRetries` | `5` | Max reconnect attempt sebelum pause |
+| `baseReconnectDelay` | `3000` | Base delay backoff (ms) |
+| `maxReconnectDelay` | `30000` | Cap delay backoff (ms) |
+| `jitter` | `500` | Random jitter tambahan (ms) |
+| `autoPauseAfter` | `3` | Auto-pause setelah N error beruntun |
+| `autoPauseDuration` | `600000` | Durasi pause (ms) |
+| `stealthMode` | `true` | Random jitter biar nggak detectable |
+| `logLevel` | `'error'` | `silent`/`error`/`warn`/`info`/`debug` |
+| `onLog` | — | Custom log handler |
+
+### Manual Reconnect Pattern
+
+Karena library nggak auto-reconnect, ini pattern yang disarankan:
+
+```javascript
+async function start() {
+  const { state, saveCreds } = await useMultiFileAuthState('auth_info')
+  const sock = makeWASocket({ auth: state })
+  sock.ev.on('creds.update', saveCreds)
+
+  sock.ev.on('connection.update', (update) => {
+    const { connection, lastDisconnect } = update
+
+    if (connection === 'close') {
+      const code = lastDisconnect?.error?.output?.statusCode
+      const stats = sock.stability?.getStats()
+
+      if (code === DisconnectReason.loggedOut) {
+        console.log('Logged out. Pairing ulang.')
+        return
+      }
+
+      const delay = stats?.isPaused
+        ? (stats.pausedUntil - Date.now())
+        : 3000
+
+      console.log(`Reconnect in ${delay / 1000}s`)
+      setTimeout(start, delay)
+    }
+
+    if (connection === 'open') {
+      console.log('✅ Connected')
+    }
+  })
+}
+```
+
+### Manual Reset
+
+```javascript
+sock.stability.resetReconnectCounters()
+```
+
+### Sub-Handlers
+
+```javascript
+sock.stability.getSessionHandler()   // Session recovery
+sock.stability.getCryptoHandler()    // Crypto error handling
+sock.stability.getProtocolHandler()  // Protocol error handling
+sock.stability.getMessageHandler()   // Duplicate message detection
+```
+
+### Runtime Log Level
+
+```javascript
+sock.stability.setLogLevel('debug')
+sock.stability.setLogLevel('silent')
+```
 ## 🗂️ CRM System
 
 Track customers, conversations, activity, dan analytics.
@@ -503,75 +583,211 @@ sock.ev.on('messages.upsert', ({ messages }) => {
 
 ## 🛰️ Anti-BAN Protection
 
-Gaussian delay (pola natural), rate cap per menit, dan health monitor dengan auto-pause.
+Health monitoring, Gaussian jitter delay, sliding-window rate limit, dan jam tidur opt-in.
 
-### Basic Anti-BAN
+> [!NOTE]
+> Anti-ban layer ini **belum terintegrasi otomatis** ke `makeWASocket`. User panggil manual dari `furina-baileys`. Integrasi otomatis di roadmap v1.0.7.
+
+### Import
 
 ```javascript
-const { AntiBan } = require('furina-baileys')
-
-const antiban = new AntiBan(sock, {
-  gaussianDelay: true, // Delay Gaussian (natural)
-  rateCap: 10, // Max 10 message/menit
-  healthMonitor: true, // Auto-pause kalau health score turun
-})
-
-// Send with anti-ban protection
-await antiban.sendMessage(jid, { text: 'Hello' })
-await antiban.sendMessage(jid, { text: 'World' })
-// Delay otomatis antara message
+const {
+  HealthMonitor,
+  RateLimiter,
+  humanSend,
+  getProfile,
+  checkSendWindow,
+  waitForSendWindow,
+} = require('furina-baileys')
 ```
 
-### Advanced Configuration
+### Profile ORI vs Business
 
 ```javascript
-const antiban = new AntiBan(sock, {
-  gaussianDelay: true,
-  gaussianMean: 3000, // Mean delay 3 detik
-  gaussianStdDev: 1000, // Standard deviation 1 detik
-  
-  rateCap: 15, // Max 15 message/menit
-  rateWindow: 60_000, // Window 60 detik
-  
-  healthMonitor: true,
-  healthThreshold: 70, // Pause kalau health < 70
-  healthCheckInterval: 300_000, // Check setiap 5 menit
-})
+// ORI: relaxed (60 msg/jam, 600-4000ms typing)
+const oriProfile = getProfile('ori')
 
-// Monitor health
-antiban.on('health-change', (score) => {
-  console.log('Health score:', score)
-  if (score < 50) console.log('⚠️ Health critical!')
-})
+// Business: stricter (30 msg/jam, 900-5000ms typing)
+const bizProfile = getProfile('business')
 
-antiban.on('auto-pause', (reason) => {
-  console.log('Auto-paused:', reason)
+// Custom override
+const customProfile = getProfile('ori', {
+  maxPerHour: 40,
+  typingMin: 800,
+  typingMax: 3000,
+  errorThreshold: 4,
 })
 ```
 
-### Warm-Up Strategy
+### Profile Reference
+
+| Field | ORI | Business | Deskripsi |
+|---|---|---|---|
+| `maxPerHour` | 60 | 30 | Max pesan per jam |
+| `typingMin` | 600 | 900 | Min typing duration (ms) |
+| `typingMax` | 4000 | 5000 | Max typing duration (ms) |
+| `cooldownMin` | 1500 | 2500 | Min cooldown after send (ms) |
+| `cooldownMax` | 4500 | 6500 | Max cooldown after send (ms) |
+| `errorThreshold` | 5 | 3 | Errors before pause |
+| `pauseMs` | 600000 | 1800000 | Pause duration (ms) |
+| `backoffBase` | 3000 | 5000 | Base reconnect delay (ms) |
+| `backoffMax` | 60000 | 120000 | Cap reconnect delay (ms) |
+| `errorWindowMs` | 3600000 | 1800000 | Error expiry window (ms) |
+| `disconnectThreshold` | 3 | 2 | Disconnects before pause |
+| `sleepEnabled` | false | false | Jam tidur opt-in |
+| `sleepStart` | 22 | 22 | Jam mulai tidur |
+| `sleepEnd` | 6 | 6 | Jam selesai tidur |
+
+### Human Send
+
+Kirim dengan typing simulation + cooldown natural:
 
 ```javascript
-// Warm up new number gradually
-const warmUpDays = 7
-const messagesPerDay = [5, 10, 20, 30, 50, 75, 100]
+const profile = getProfile('ori')
 
-for (let day = 0; day < warmUpDays; day++) {
-  const maxMessages = messagesPerDay[day]
-  console.log(`Day ${day + 1}: max ${maxMessages} messages`)
-  
-  // Send up to maxMessages
-  for (let i = 0; i < maxMessages; i++) {
-    await antiban.sendMessage(jid, { text: `Message ${i + 1}` })
+await humanSend(sock, jid, { text: 'Halo!' }, {}, profile)
+// Urutan: composing → sleep (berdasarkan panjang teks) → sendMessage → cooldown → paused
+```
+
+### Health Monitor
+
+Track error/disconnect dan pause otomatis kalau threshold tercapai:
+
+```javascript
+const health = new HealthMonitor(profile)
+
+// Record saat error
+sock.ev.on('connection.update', ({ connection, lastDisconnect }) => {
+  if (connection === 'close') {
+    health.recordDisconnect()
+    const code = lastDisconnect?.error?.output?.statusCode
+    if (code) health.recordError(code)
   }
-  
-  // Wait 24 hours
-  await new Promise(resolve => setTimeout(resolve, 24 * 60 * 60 * 1000))
+})
+
+// Cek pause
+if (health.isPaused()) {
+  console.log('Bot di-pause, tunggu...')
+  return
 }
+
+// Trigger pause (kalau error cukup)
+if (health.maybePause()) {
+  console.log('Pause triggered')
+}
+
+// Backoff untuk reconnect delay
+const delay = health.nextBackoff()  // 3s → 6s → 12s → ... capped
+setTimeout(start, delay)
 ```
 
----
+### Health Persistence
 
+State bisa di-export/import biar nggak reset saat restart:
+
+```javascript
+// Save sebelum shutdown
+const state = health.exportState()
+fs.writeFileSync('health-state.json', JSON.stringify(state))
+
+// Restore saat start
+const saved = JSON.parse(fs.readFileSync('health-state.json'))
+health.importState(saved)
+```
+
+### Rate Limiter
+
+Sliding-window rate cap:
+
+```javascript
+const limiter = RateLimiter.fromProfile(profile)
+// atau manual: new RateLimiter(10, 60_000) → 10 per 60 detik
+
+await limiter.take()  // Tunggu kalau kuota habis
+await sock.sendMessage(jid, { text: 'Hello' })
+```
+
+### Send Window (Jam Tidur)
+
+Opt-in — bot nggak kirim di rentang jam tertentu:
+
+```javascript
+const profile = getProfile('ori', {
+  sleepEnabled: true,
+  sleepStart: 22,  // 22:00
+  sleepEnd: 6,     // 06:00 besoknya
+})
+
+// Cek manual
+const check = checkSendWindow(profile)
+if (!check.allowed) {
+  console.log(`Sleep window aktif, tunggu ${check.waitMs / 60000} menit`)
+}
+
+// Atau tunggu otomatis
+await waitForSendWindow(profile)  // Return saat di luar jam tidur
+```
+
+### Health Stats
+
+```javascript
+const stats = health.getStats()
+console.log({
+  totalErrors: stats.totalErrors,
+  totalDisconnects: stats.totalDisconnects,
+  totalPauses: stats.totalPauses,
+  uptimeMs: stats.uptimeMs,
+})
+```
+
+### Full Example
+
+```javascript
+const {
+  makeWASocket,
+  useMultiFileAuthState,
+  getProfile,
+  HealthMonitor,
+  RateLimiter,
+  humanSend,
+  checkSendWindow,
+  waitForSendWindow,
+} = require('furina-baileys')
+
+async function start() {
+  const { state, saveCreds } = await useMultiFileAuthState('auth_info')
+  const sock = makeWASocket({ auth: state })
+  sock.ev.on('creds.update', saveCreds)
+
+  const profile = getProfile('ori')
+  const health = new HealthMonitor(profile)
+  const limiter = RateLimiter.fromProfile(profile)
+
+  sock.ev.on('connection.update', ({ connection, lastDisconnect }) => {
+    if (connection === 'close') {
+      health.recordDisconnect()
+      const code = lastDisconnect?.error?.output?.statusCode
+      if (code) health.recordError(code)
+    }
+    if (connection === 'open') {
+      health.resetBackoff()
+    }
+  })
+
+  async function sendSafe(jid, content) {
+    if (health.isPaused()) throw new Error('Bot paused')
+    if (!checkSendWindow(profile).allowed) {
+      await waitForSendWindow(profile)
+    }
+    await limiter.take()
+    return humanSend(sock, jid, content, {}, profile)
+  }
+
+  await sendSafe(jid, { text: 'Halo!' })
+}
+
+start()
+```
 ## 🆔 Furina Resolver
 
 Complete WhatsApp identity resolver (LID mapping + USync queries + legacy helpers).
@@ -639,6 +855,51 @@ console.log(isUser('6281234567890@s.whatsapp.net')) // true
 ```
 
 ---
+
+### Link Utilities
+
+Convert JID ↔ WhatsApp link:
+
+```javascript
+// Generate wa.me link dari nomor atau JID
+const link = await resolver.toWhatsAppLink('6281234567890')
+console.log(link) // 'https://wa.me/6281234567890'
+
+// Dari LID — otomatis resolve ke PN dulu
+const link2 = await resolver.toWhatsAppLink('54435237613621@lid')
+console.log(link2) // null kalau nggak bisa resolve
+
+// Parse link jadi JID
+const jid1 = await resolver.fromWhatsAppLink('https://wa.me/6281234567890')
+console.log(jid1) // '6281234567890@s.whatsapp.net'
+
+const jid2 = await resolver.fromWhatsAppLink('https://chat.whatsapp.com/KrffhAYf9AvH84diFuCLJS')
+console.log(jid2) // group JID
+```
+
+### Bulk Resolve
+
+Resolve banyak target paralel (chunk 5, hindari rate-limit):
+
+```javascript
+const results = await resolver.resolveMany([
+  '6281234567890',
+  '6289876543210',
+  '120363xxx@g.us',
+])
+console.log(results) // ['...@lid', '...@lid', '...@g.us']
+```
+
+### Standalone Wrappers
+
+Semua method juga tersedia sebagai fungsi standalone:
+
+```javascript
+const { toWhatsAppLink, fromWhatsAppLink } = require('furina-baileys')
+
+const link = await toWhatsAppLink(sock, '6281234567890')
+const jid = await fromWhatsAppLink(sock, 'https://wa.me/6281234567890')
+```
 
 ## 🔘 Button Interaktif
 
@@ -814,6 +1075,166 @@ try {
 ```
 
 ---
+
+## 🔨 MessageBuilder
+
+Fluent builder buat compose pesan kompleks. Unifikasi text, media, button, carousel, poll, contact — semua dari satu API.
+
+### Basic Usage
+
+```javascript
+const { MessageBuilder } = require('furina-baileys')
+
+await new MessageBuilder()
+  .setText('Halo dari MessageBuilder!')
+  .send(sock, jid)
+```
+
+### Dengan Button
+
+```javascript
+await new MessageBuilder()
+  .setText('Pilih salah satu:')
+  .addButton({ type: 'reply', id: '#yes', text: 'Ya' })
+  .addButton({ type: 'reply', id: '#no', text: 'Tidak' })
+  .send(sock, jid)
+```
+
+Saat ada button, MessageBuilder otomatis pakai jalur relay + inject node bot (private chat) supaya WhatsApp render button beneran.
+
+### Image + Button (Header Media)
+
+```javascript
+const img = fs.readFileSync('./promo.jpg')
+
+await new MessageBuilder()
+  .setImage(img, 'Promo hari ini!')
+  .addButton({ type: 'url', text: 'Lihat Detail', url: 'https://example.com', webview: true })
+  .addButton({ type: 'reply', id: '#beli', text: 'Beli Sekarang' })
+  .send(sock, jid)
+```
+
+### Carousel
+
+```javascript
+await new MessageBuilder()
+  .addCard({
+    header: { image: img, title: 'Kartu 1' },
+    body: 'Deskripsi kartu 1',
+    buttons: [{ type: 'reply', id: '#c1', text: 'Pilih' }],
+  })
+  .addCard({
+    header: { image: img, title: 'Kartu 2' },
+    body: 'Deskripsi kartu 2',
+    buttons: [{ type: 'url', text: 'Buka', url: 'https://example.com' }],
+  })
+  .send(sock, jid)
+```
+
+### Quoted + Ad Reply
+
+```javascript
+await new MessageBuilder()
+  .setText('Balasan dengan quote:')
+  .setQuoted(originalMessage)
+  .setAdReply({
+    title: 'Furina Store',
+    body: 'Promo hari ini',
+    thumbnail: 'https://example.com/thumb.png',
+    sourceUrl: 'https://github.com/reivalavandy06-oss/furina-baileys',
+  })
+  .send(sock, jid)
+```
+
+### Media Lainnya
+
+```javascript
+// Video
+await new MessageBuilder()
+  .setVideo(fs.readFileSync('./clip.mp4'), 'Caption video')
+  .send(sock, jid)
+
+// Document
+await new MessageBuilder()
+  .setDocument(fs.readFileSync('./file.pdf'), 'laporan.pdf', 'application/pdf')
+  .send(sock, jid)
+
+// Audio (voice note)
+await new MessageBuilder()
+  .setAudio(fs.readFileSync('./voice.ogg'), true)
+  .send(sock, jid)
+
+// Sticker (harus WebP)
+await new MessageBuilder()
+  .setSticker(fs.readFileSync('./sticker.webp'))
+  .send(sock, jid)
+```
+
+### Poll, Location, Contact
+
+```javascript
+// Poll
+await new MessageBuilder()
+  .setPoll('Makan apa?', ['Pizza', 'Bakso', 'Mie'], 1)
+  .send(sock, jid)
+
+// Location
+await new MessageBuilder()
+  .setLocation({ degreesLatitude: -6.1754, degreesLongitude: 106.8272, name: 'Monas', address: 'Jakarta' })
+  .send(sock, jid)
+
+// Contact vCard
+await new MessageBuilder()
+  .setContact({ phoneNumber: '6281234567890', fullName: 'Furina Store', org: 'Furina Corp' })
+  .send(sock, jid)
+```
+
+### Auto-Mention
+
+```javascript
+// Mention otomatis parse @6281234567890 dari text
+await new MessageBuilder()
+  .setText('Halo @6281234567890, cek ini!')
+  .send(sock, jid)
+
+// Atau tambah manual
+await new MessageBuilder()
+  .setText('Update penting:')
+  .addMention('6281234567890@s.whatsapp.net')
+  .send(sock, jid)
+```
+
+### Method Reference
+
+| Method | Deskripsi |
+|---|---|
+| `setText(text, autoMention?)` | Set text + auto-parse mention |
+| `setImage(buf, caption?)` | Image + caption |
+| `setVideo(buf, caption?, gifPlayback?)` | Video |
+| `setAudio(buf, ptt?)` | Audio / voice note |
+| `setDocument(buf, fileName, mimetype?, caption?)` | Document |
+| `setSticker(buf, isAnimated?)` | Sticker (WebP) |
+| `setLocation(opts)` | Location message |
+| `setContact(opts)` | Contact vCard |
+| `setPoll(name, values, selectableCount?)` | Poll |
+| `setReaction(key, text)` | Reaction ke pesan |
+| `setViewOnce(enabled?)` | View-once (image/video only) |
+| `setQuoted(msg)` | Quote pesan lain |
+| `setAdReply(opts)` | Ad reply (thumbnail + source URL) |
+| `addMention(...jids)` | Tambah mention |
+| `addButton(btn)` | Tambah button (maks 10) |
+| `addCard(card)` | Tambah carousel card (maks 10, wajib media) |
+| `send(sock, jid, opts?)` | Kirim ke tujuan |
+
+### Auto-Deteksi Jalur
+
+MessageBuilder otomatis pilih jalur kirim:
+
+- **Pesan biasa** (text, media, dll) → `sock.sendMessage()`
+- **Ada button** → `generateWAMessageFromContent()` + `sock.relayMessage()` + node bot
+- **Ada carousel** → jalur relay + node carousel
+
+User nggak perlu tau bedanya.
 
 ## 📊 Button Tracker
 
