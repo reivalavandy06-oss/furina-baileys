@@ -256,7 +256,9 @@ export const decodePatches = async (name: WAPatchName, syncds: proto.ISyncdPatch
 	for (const syncd of syncds) {
 		const { version, keyId, snapshotMac } = syncd
 		if (syncd.externalMutations) {
+			logger?.trace({ name, version }, 'downloading external patch')
 			const ref = await downloadExternalPatch(syncd.externalMutations, options)
+			logger?.debug({ name, version, mutations: ref.mutations.length }, 'downloaded external patch')
 			syncd.mutations?.push(...ref.mutations)
 		}
 		const patchVersion = toNumber(version!.version)
@@ -267,6 +269,7 @@ export const decodePatches = async (name: WAPatchName, syncds: proto.ISyncdPatch
 			decodeResult = await decodeSyncdPatch(syncd, name, newState, getAppStateSyncKey, shouldMutate ? mutation => { const index = mutation.syncAction.index?.toString(); mutationMap[index!] = mutation } : () => {}, validateMacs)
 		} catch (err) {
 			if (isMissingKeyError(err)) throw err
+			logger?.warn({ name, version: patchVersion, error: (err as Error).message }, 'failed to decode patch, skipping')
 			continue
 		}
 		newState.hash = decodeResult.hash
@@ -320,6 +323,8 @@ export const chatModificationToAppPatch = (mod: ChatModification, jid: string) =
 export const processSyncAction = (syncAction: ChatMutation, ev: BaileysEventEmitter, me: Contact, initialSyncOpts?: InitialAppStateSyncOptions, logger?: ILogger) => {
 	const isInitialSync = !!initialSyncOpts
 	const accountSettings = initialSyncOpts?.accountSettings
+
+	logger?.trace({ syncAction, initialSync: !!initialSyncOpts }, 'processing sync action')
 	const { syncAction: { value: action }, index: [type, id, msgId, fromMe] } = syncAction
 	if (action?.muteAction) { ev.emit('chats.update', [{ id, muteEndTime: action.muteAction?.muted ? toNumber(action.muteAction.muteEndTimestamp) : null, conditional: getChatUpdateConditional(id!, undefined) }]) }
 	else if (action?.archiveChatAction || type === 'archive' || type === 'unarchive') { const archiveAction = action?.archiveChatAction; const isArchived = archiveAction ? archiveAction.archived : type === 'archive'; const msgRange = !accountSettings?.unarchiveChats ? undefined : archiveAction?.messageRange; ev.emit('chats.update', [{ id, archived: isArchived, conditional: getChatUpdateConditional(id!, msgRange) }]) }
@@ -328,7 +333,7 @@ export const processSyncAction = (syncAction: ChatMutation, ev: BaileysEventEmit
 	else if (action?.contactAction) { const results = processContactAction(action.contactAction, id, logger); emitSyncActionResults(ev, results) }
 	else if (action?.pushNameSetting) { const name = action?.pushNameSetting?.name; if (name && me?.name !== name) ev.emit('creds.update', { me: { ...me, name } }) }
 	else if (action?.pinAction) { ev.emit('chats.update', [{ id, pinned: action.pinAction?.pinned ? toNumber(action.timestamp) : null, conditional: getChatUpdateConditional(id!, undefined) }]) }
-	else if (action?.unarchiveChatsSetting) { const unarchiveChats = !!action.unarchiveChatsSetting.unarchiveChats; ev.emit('creds.update', { accountSettings: { unarchiveChats } }); if (accountSettings) accountSettings.unarchiveChats = unarchiveChats }
+	else if (action?.unarchiveChatsSetting) { const unarchiveChats = !!action.unarchiveChatsSetting.unarchiveChats; ev.emit('creds.update', { accountSettings: { unarchiveChats } }); logger?.info(`archive setting updated => '${action.unarchiveChatsSetting.unarchiveChats}'`); if (accountSettings) accountSettings.unarchiveChats = unarchiveChats }
 	else if (action?.starAction || type === 'star') { let starred = action?.starAction?.starred; if (typeof starred !== 'boolean') starred = syncAction.index[syncAction.index.length - 1] === '1'; ev.emit('messages.update', [{ key: { remoteJid: id, id: msgId, fromMe: fromMe === '1' }, update: { starred } }]) }
 	else if (action?.deleteChatAction || type === 'deleteChat') { if (!isInitialSync) ev.emit('chats.delete', [id!]) }
 	else if (action?.labelEditAction) { const { name, color, deleted, predefinedId } = action.labelEditAction; ev.emit('labels.edit', { id: id!, name: name!, color: color!, deleted: deleted!, predefinedId: predefinedId ? String(predefinedId) : undefined }) }
@@ -343,6 +348,7 @@ export const processSyncAction = (syncAction: ChatMutation, ev: BaileysEventEmit
 	else if (action?.notificationActivitySettingAction?.notificationActivitySetting) { ev.emit('settings.update', { setting: 'notificationActivitySetting', value: action.notificationActivitySettingAction.notificationActivitySetting }) }
 	else if (action?.lidContactAction) { ev.emit('contacts.upsert', [{ id: id!, name: action.lidContactAction.fullName || action.lidContactAction.firstName || action.lidContactAction.username || undefined, username: action.lidContactAction.username || undefined, lid: id!, phoneNumber: undefined }]) }
 	else if (action?.privacySettingChannelsPersonalisedRecommendationAction) { ev.emit('settings.update', { setting: 'channelsPersonalisedRecommendation', value: action.privacySettingChannelsPersonalisedRecommendationAction }) }
+	else { logger?.debug({ syncAction, id }, 'unprocessable update') }
 	function getChatUpdateConditional(id: string, msgRange: proto.SyncActionValue.ISyncActionMessageRange | null | undefined): ChatUpdate['conditional'] { return isInitialSync ? data => { const chat = data.historySets.chats[id] || data.chatUpserts[id]; if (chat) return msgRange ? isValidPatchBasedOnMessageRange(chat, msgRange) : true } : undefined }
 	function isValidPatchBasedOnMessageRange(chat: Chat, msgRange: proto.SyncActionValue.ISyncActionMessageRange | null | undefined) { const lastMsgTimestamp = Number(msgRange?.lastMessageTimestamp || msgRange?.lastSystemMessageTimestamp || 0); const chatLastMsgTimestamp = Number(chat?.lastMessageRecvTimestamp || 0); return lastMsgTimestamp >= chatLastMsgTimestamp }
 }

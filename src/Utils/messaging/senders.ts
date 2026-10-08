@@ -1,11 +1,9 @@
 // buttons.ts — senders + re-export API publik
 import { proto } from '../../../WAProto/index.js'
-import { prepareWAMessageMedia } from '../messages'
 import type { WAMessage, MessageRelayOptions } from '../../Types'
 import { assert, assertUniqueIds, J, FURINA_BUTTON_RULES } from './types'
 import type { FurinaSocket, FurinaButton, FurinaButtonOptions, FurinaTemplateOptions, FurinaListOptions, FurinaProductListOptions } from './types'
 import { toNativeButton, buildButtonNodes, buildHeader } from './button-builders'
-import type { NativeButton } from './types'
 
 export async function sendButton(
 	sock: FurinaSocket,

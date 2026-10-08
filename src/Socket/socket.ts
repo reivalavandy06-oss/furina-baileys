@@ -763,20 +763,16 @@ export const makeSocket = (config: SocketConfig) => {
 
 	// wa pairing-code validator rejects custom os labels like "Furina-Baileys".
 // normalize to canonical values so custom browser names keep working (upstream #2559)
+// The platform ID itself must come from getCompanionPlatformId — it owns the
+// CompanionWebClientType mapping and the Desktop -> UWP/ELECTRON special case.
 const getPairingCodePlatform = (browser: string[]) => {
-	const known: { [k: string]: { id: string; name: string } } = {
-		Chrome: { id: '1', name: 'Chrome' },
-		Firefox: { id: '2', name: 'Firefox' },
-		IE: { id: '3', name: 'IE' },
-		Opera: { id: '4', name: 'Opera' },
-		Safari: { id: '5', name: 'Safari' },
-		Edge: { id: '6', name: 'Edge' }
-	}
 	const knownOs = ['Mac OS', 'Windows', 'Ubuntu']
-	const b = known[browser[1] ?? 'Chrome'] ?? { id: '1', name: 'Chrome' }
+	const knownBrowsers = ['Chrome', 'Edge', 'Firefox', 'IE', 'Opera', 'Safari']
 	const osName = browser[0] ?? 'Mac OS'
 	const os = knownOs.includes(osName) ? osName : 'Mac OS'
-	return { id: b.id, display: `${b.name} (${os})` }
+	const browserName = browser[1] ?? 'Chrome'
+	const name = knownBrowsers.includes(browserName) ? browserName : 'Chrome'
+	return { display: `${name} (${os})` }
 }
 
 	const requestPairingCode = async (phoneNumber: string, customPairingCode?: string): Promise<string> => {
@@ -824,7 +820,7 @@ const getPairingCodePlatform = (browser: string[]) => {
 						{
 							tag: 'companion_platform_id',
 							attrs: {},
-							content: getPairingCodePlatform(browser).id
+							content: getCompanionPlatformId(browser)
 						},
 						{
 							tag: 'companion_platform_display',

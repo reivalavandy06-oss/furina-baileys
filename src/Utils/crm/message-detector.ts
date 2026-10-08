@@ -190,7 +190,7 @@ function detectInnerMessageType(msg: any): CRMMessageType {
 	if (msg.fastRatchetKeySenderKeyDistributionMessage) return 'fastRatchetKeySenderKeyDistributionMessage'
 	if (msg.deviceSentMessage) return 'deviceSentMessage'
 	if (msg.messageContextInfo) return 'messageContextInfo'
-	if (msg.stickerSyncRMRMessage) return 'stickerSyncRMRMessage'
+	if (msg.stickerSyncRmrMessage) return 'stickerSyncRmrMessage'
 	if (msg.messageHistoryBundle) return 'messageHistoryBundle'
 	if (msg.messageHistoryNotice) return 'messageHistoryNotice'
 	if (msg.placeholderMessage) return 'placeholderMessage'
@@ -230,25 +230,35 @@ export interface DetectionResult {
 }
 
 // Detect view-once stub (payload kosong tapi flag isViewOnce true)
-function detectViewOnceStub(message: any, messageKey: any): DetectionResult | null {
+function detectViewOnceStub(message: any, messageKey: any, stubSource?: any): DetectionResult | null {
 	// Bukan stub kalau payload ada isinya
 	if (message && typeof message === 'object' && Object.keys(message).length > 0) {
 		return null
 	}
 	
-	// Cek flag isViewOnce
+	// Cek flag isViewOnce (field Baileys-added di WAMessageKey — ini memang di key)
 	if (messageKey?.isViewOnce === true) {
-		// Coba detect tipe media dari stub parameters
-		const stubParams = messageKey?.messageStubParameters
+		// messageStubParameters ada di IWebMessageInfo (level WAMessage), BUKAN di
+		// IMessageKey — IMessageKey cuma punya remoteJid/fromMe/id/participant.
+		// Baca dari stubSource (full WAMessage), dengan fallback ke key biar
+		// pemanggil lama tidak diam-diam berubah perilaku.
+		const stubParams = stubSource?.messageStubParameters ?? messageKey?.messageStubParameters
 		let detectedType: CRMMessageType = 'viewOnceMessageV2'
 		
 		if (stubParams && Array.isArray(stubParams)) {
 			const paramStr = stubParams.join(' ').toLowerCase()
-			if (paramStr.includes('audio') || paramStr.includes('voice') || paramStr.includes('vn')) {
+			// Token WAJIB dibatasi delimiter non-huruf. Versi lama pakai
+			// includes()/substring bebas sehingga kata False positive:
+			//   'venmo_invoice.pdf' contains "voice" -> terklasifikasi audio
+			//   'govern' contains "vern", 'invite' mengandung 'vite', dll.
+			// Pola di bawah menolak match di tengah kata, tapi tetap menerima
+			// format mime seperti 'audio/ogg' dan 'video/mp4'.
+			const has = (t: string) => new RegExp(`(^|[^a-z])(${t})([^a-z]|$)`).test(paramStr)
+			if (has('audio') || has('voice') || has('ogg') || has('opus')) {
 				detectedType = 'audioMessage'
-			} else if (paramStr.includes('video')) {
+			} else if (has('video') || has('mp4')) {
 				detectedType = 'videoMessage'
-			} else if (paramStr.includes('image') || paramStr.includes('photo') || paramStr.includes('pic')) {
+			} else if (has('image') || has('photo') || has('jpeg') || has('jpg') || has('png') || has('webp')) {
 				detectedType = 'imageMessage'
 			}
 		}
@@ -267,14 +277,16 @@ function detectViewOnceStub(message: any, messageKey: any): DetectionResult | nu
 }
 
 // Detect decrypt stub (session belum sinkron, message gagal decrypt)
-function detectDecryptStub(message: any, messageKey: any): DetectionResult | null {
+function detectDecryptStub(message: any, messageKey: any, stubSource?: any): DetectionResult | null {
 	// Bukan stub kalau payload ada isinya
 	if (message && typeof message === 'object' && Object.keys(message).length > 0) {
 		return null
 	}
 	
-	// Cek apakah ada messageStubType (indikator stub)
-	if (messageKey?.messageStubType && !message) {
+	// Cek apakah ada messageStubType (indikator stub).
+	// Field ini di IWebMessageInfo, bukan IMessageKey — lihat catatan di atas.
+	const stubType = stubSource?.messageStubType ?? messageKey?.messageStubType
+	if (stubType) {
 		return {
 			type: 'protocolMessage',
 			subType: null,
@@ -300,15 +312,19 @@ function detectDecryptStub(message: any, messageKey: any): DetectionResult | nul
 	return null
 }
 
-export function detectMessageTypeFull(message: any, messageKey?: any): DetectionResult {
+/** `stubSource` opsional = full WAMessage yang membawa messageStubType /
+ * messageStubParameters (field itu ada di IWebMessageInfo, bukan IMessageKey).
+ * Kalau tidak diteruskan, stub tidak terdeteksi — dan itu lebih baik daripada
+ * salah klasifikasi. */
+export function detectMessageTypeFull(message: any, messageKey?: any, stubSource?: any): DetectionResult {
 	// ═══ CEK STUB DULU (sebelum unwrap) ═══
 	
 	// 1. Cek view-once stub
-	const viewOnceResult = detectViewOnceStub(message, messageKey)
+	const viewOnceResult = detectViewOnceStub(message, messageKey, stubSource)
 	if (viewOnceResult) return viewOnceResult
 	
 	// 2. Cek decrypt stub
-	const decryptResult = detectDecryptStub(message, messageKey)
+	const decryptResult = detectDecryptStub(message, messageKey, stubSource)
 	if (decryptResult) return decryptResult
 	
 	// ═══ EXISTING UNWRAP LOGIC ═══
@@ -328,7 +344,7 @@ export function detectMessageTypeFull(message: any, messageKey?: any): Detection
 		'fastRatchetKeySenderKeyDistributionMessage',
 		'deviceSentMessage',
 		'messageContextInfo',
-		'stickerSyncRMRMessage',
+		'stickerSyncRmrMessage',
 		'messageHistoryBundle',
 		'messageHistoryNotice',
 		'placeholderMessage',

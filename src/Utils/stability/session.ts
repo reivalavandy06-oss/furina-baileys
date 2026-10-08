@@ -21,7 +21,8 @@ export class SessionHandler {
 	async deleteSession(sock: any, jid: string): Promise<boolean> {
 		try {
 			if (sock.signalRepository?.deleteSession) {
-				await sock.signalRepository.deleteSession(jid)
+				// signalRepository.deleteSession takes an ARRAY of jids, not a string
+				await sock.signalRepository.deleteSession([jid])
 				this.logger.info(`Session deleted for ${jid}, will re-establish on next message`)
 				return true
 			}

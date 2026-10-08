@@ -238,7 +238,7 @@ export class CRMManager {
 			const content = extractMessageText(msg.message)
 
 			// Detect message type (full detection dengan unwrap + subType)
-			const detection = detectMessageTypeFull(msg.message, msg.key)
+			const detection = detectMessageTypeFull(msg.message, msg.key, msg)
 
 			// Skip internal types (protocol, senderKeyDistribution, dll)
 			// Ini biar CRM nggak ke-pollute sama message internal
@@ -260,9 +260,10 @@ export class CRMManager {
 				interactiveSubType: detection.subType,
 				unwrappedFrom: detection.unwrappedFrom,
 			}).catch(err => {
-				// Silently fail - jangan break message handling
-				// Tapi log error di debug mode
-				// console.error('[CRM] Track error:', err)
+				// Jangan sampai failure tracking ini breaking message handling,
+				// tapi jangan juga ditelan diam-diam — tanpa log, mungkin bug
+				// tracking-nya nggak ketahuan sama sekali.
+				this.sock.logger?.debug({ err, jid: senderJid }, 'CRM: trackIncomingMessage failed')
 			})
 		}
 	}

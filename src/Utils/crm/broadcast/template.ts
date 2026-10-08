@@ -12,11 +12,16 @@ import type { CRMCustomer } from '../types'
 
 export function parseSpintax(text: string): string {
 	// Match pattern {option1|option2|option3}
-	// Regex: \{([^{}]+)\} — cari { ... } tanpa nested braces
-	return text.replace(/\{([^{}]+)\}/g, (match, options) => {
+	// Regex: \{([^{}]*\|[^{}]*)\} — HANYA group yang punya minimal satu '|'.
+	//
+	// PENTING: jangan pakai \{([^{}]+)\} di sini. Pola itu juga akan mencabut
+	// placeholder single-option seperti {nama} / {kupon}, sehingga
+	// personalizeTemplate() kehilangan targetnya sebelum sempat di-replace dan
+	// penerima menerima teks literal "nama". Group tanpa '|' harus diteruskan
+	// apa adanya supaya环节 placeholder di bawah bisa bekerja.
+	return text.replace(/\{([^{}]*\|[^{}]*)\}/g, (match, options) => {
 		const choices = options.split('|')
-		if (choices.length === 0) return match
-		
+
 		// Pilih random dari options
 		const randomIndex = Math.floor(Math.random() * choices.length)
 		return choices[randomIndex].trim()
@@ -32,21 +37,26 @@ export function personalizeTemplate(
 	customer: CRMCustomer | null,
 	extra?: Record<string, string>
 ): string {
-	// Step 1: Parse spintax dulu (biar {hai|halo} jadi salah satu)
+// Step 1: Parse spintax dulu (biar {hai|halo} jadi salah satu).
+	// parseSpintax cuma menyentuh group yang punya '|', jadi placeholder
+	// single-option seperti {nama} utuh sampai ke step 2.
 	let result = parseSpintax(template)
 
-	// Step 2: Replace placeholder bawaan (case-insensitive)
+	// Step 2: Replace placeholder bawaan (case-insensitive).
+	// Pakai function replacer (() => value), bukan string: kalau pushname
+	// mengandung '$&' atau "$'", pola '$' di String.replace akan diekspansi
+	// dan merusak isi pesan.
 	const nama = customer?.pushname ?? 'kak'
-	result = result.replace(/\{nama\}/gi, nama)
-	result = result.replace(/\{jid\}/gi, customer?.jid ?? '')
-	result = result.replace(/\{pn\}/gi, customer?.pn ?? '')
+	result = result.replace(/\{nama\}/gi, () => nama)
+	result = result.replace(/\{jid\}/gi, () => customer?.jid ?? '')
+	result = result.replace(/\{pn\}/gi, () => customer?.pn ?? '')
 
 	// Step 3: Replace placeholder custom dari user (misal {kupon}, {expired})
 	if (extra) {
 		for (const [key, value] of Object.entries(extra)) {
 			// Escape key biar aman jadi regex (hindari special chars)
 			const safeKey = key.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-			result = result.replace(new RegExp(`\\{${safeKey}\\}`, 'gi'), value)
+			result = result.replace(new RegExp(`\\{${safeKey}\\}`, 'gi'), () => value)
 		}
 	}
 

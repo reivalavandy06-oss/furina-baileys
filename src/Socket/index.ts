@@ -3,7 +3,7 @@
 // Merge user config → panggil makeCommunitiesSocket → attach stability layer.
 
 import { DEFAULT_CONNECTION_CONFIG } from '../Defaults'
-import type { SocketConfig } from '../Types'
+import type { SocketConfig, UserFacingSocketConfig } from '../Types'
 import { StabilityManager } from '../Utils/stability'
 import { makeCommunitiesSocket } from './communities'
 
@@ -19,13 +19,15 @@ export * from './communities'
 
 // wrap the raw socket factory so user config gets merged with our defaults.
 // without this, every makeWASocket call crashes on missing shouldSyncHistoryMessage
-const makeWASocket = (config: Partial<SocketConfig>) => {
+const makeWASocket = (config: UserFacingSocketConfig) => {
 	const merged = {
 		...DEFAULT_CONNECTION_CONFIG,
 		...config // user config always wins
 	} as SocketConfig
 
-	const sock = makeCommunitiesSocket(merged)
+	const sock = makeCommunitiesSocket(merged) as ReturnType<typeof makeCommunitiesSocket> & {
+		stability?: StabilityManager
+	}
 
 	// ===== FURINA: STABILITY LAYER =====
 	// Default ON. User opt-out dengan `stability: false`.
@@ -41,7 +43,7 @@ const makeWASocket = (config: Partial<SocketConfig>) => {
 	// makeWASocket ulang berdasarkan `sock.stability.getStats()`.
 	if (config.stability !== false) {
 		const stabilityConfig = typeof config.stability === 'object' ? config.stability : {}
-		;(sock as any).stability = new StabilityManager(sock, stabilityConfig)
+		sock.stability = new StabilityManager(sock, stabilityConfig)
 	}
 
 	return sock

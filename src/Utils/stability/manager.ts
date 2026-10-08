@@ -9,7 +9,7 @@ import { MessageHandler } from './message'
 import { SessionHandler } from './session'
 import { CryptoHandler } from './crypto'
 import { ProtocolHandler } from './protocol'
-import type { StabilityConfig, StabilityStats, FurinaErrorCategory } from './types'
+import type { StabilityConfig, StabilityStats } from './types'
 
 const DEFAULT_CONFIG: Required<Omit<StabilityConfig, 'onLog'>> = {
 	autoRecovery: true,
@@ -178,9 +178,32 @@ export class StabilityManager {
 		return this.messageHandler
 	}
 
+	/**
+	 * Delay (ms) sebelum reconnect berikutnya — exponential backoff + jitter
+	 * stealth mode.
+	 *
+	 * PENTING: layer ini TIDAK melakukan reconnect sendiri. Nilai ini dihitung
+	 * dan disimpan supaya consumer bisa menjadwalkannya sendiri, misalnya:
+	 *
+	 *   const delay = sock.stability?.getReconnectDelay()
+	 *   if (delay !== null) setTimeout(() => startSock(), delay)
+	 *
+	 * Mengembalikan null kalau reconnect tidak masuk akal saat ini (pause
+	 * aktif, atau disconnect terakhir non-recoverable seperti 403 banned).
+	 */
+	getReconnectDelay(): number | null {
+		const stats = this.connectionHandler.getStats()
+		if (stats.isPaused) return null
+		if (!this.connectionHandler.canReconnect()) return null
+		return this.connectionHandler.getReconnectDelay()
+	}
+
 	// Get current stability statistics
 	getStats(): StabilityStats {
 		const connectionStats = this.connectionHandler.getStats()
+		// Field reconnectAttempts/isPaused/pausedUntil dimiliki ConnectionHandler
+		// sebagai satu-satunya sumber kebenaran. Nilai yang di this.stats akan
+		// di-timpa di sini dan karena itu tidak pernah bisa diobservasi.
 		return {
 			...this.stats,
 			reconnectAttempts: connectionStats.reconnectAttempts,

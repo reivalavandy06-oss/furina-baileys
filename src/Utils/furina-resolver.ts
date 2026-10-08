@@ -13,7 +13,7 @@ import { getLIDResolver, type LIDResolver, type FurinaLIDMapping, normalizeJid }
 import { getUSyncResolver, type USyncResolver, type UserInfo } from './usync-resolver'
 
 // Re-export types biar user nggak perlu import dari 2 file berbeda
-export { FurinaLIDMapping, UserInfo }
+export type { FurinaLIDMapping, UserInfo }
 
 // ===== FURINA: LEGACY HELPERS =====
 

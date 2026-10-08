@@ -150,7 +150,7 @@ export type CRMMessageType =
 	| 'fastRatchetKeySenderKeyDistributionMessage' // fast ratchet key
 	| 'deviceSentMessage'                 // sync dari device lain (companion)
 	| 'messageContextInfo'                // metadata kontekstual
-	| 'stickerSyncRMRMessage'             // sync sticker RMR
+	| 'stickerSyncRmrMessage'             // sync sticker RMR
 	| 'messageHistoryBundle'              // bundle history pesan
 	| 'messageHistoryNotice'              // notifikasi history
 	| 'placeholderMessage'                // placeholder (belum ter-decrypt)
@@ -451,7 +451,7 @@ export const INTERNAL_MESSAGE_TYPES: ReadonlySet<CRMMessageType> = new Set([
 	'fastRatchetKeySenderKeyDistributionMessage',
 	'deviceSentMessage',
 	'messageContextInfo',
-	'stickerSyncRMRMessage',
+	'stickerSyncRmrMessage',
 	'messageHistoryBundle',
 	'messageHistoryNotice',
 	'placeholderMessage',
