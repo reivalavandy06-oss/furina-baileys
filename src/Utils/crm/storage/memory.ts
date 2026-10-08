@@ -5,6 +5,29 @@
 import type { CRMStorage } from './interface'
 import type { CRMCustomer, CRMActivity, CRMMessage, CRMAnalytics } from '../types'
 
+export interface InMemoryStorageOptions {
+	// Jumlah pesan terbaru yang disimpan per customer.
+	// undefined atau Infinity = tanpa batas (pilihan eksplisit).
+	maxConversationHistory?: number
+}
+
+// undefined = tidak ada batas; angka = batas per customer.
+export type MessageLimit = number | undefined
+
+// Validasi batas history. Prinsipnya: batas yang diam-diam berubah jadi
+// "tanpa batas" itu bahaya — justru itu bug yang bisa kita cegah. Jadi input
+// yang tidak valid dijepit, bukan dilepas jadi unbounded.
+//   undefined / Infinity -> undefined (tanpa batas, disengaja)
+//   2.7                  -> 2       (dibulatkan ke bawah, tidak akan pernah
+//                                      melebihi yang diminta)
+//   0 / -5 / NaN / string -> 0      (sumber daya tetap terbatas)
+export function resolveMessageLimit(value: unknown): MessageLimit {
+	if (value === undefined) return undefined
+	if (value === Infinity) return undefined
+	if (typeof value !== 'number' || Number.isNaN(value)) return 0
+	return Math.max(0, Math.floor(value))
+}
+
 export class InMemoryStorage implements CRMStorage {
 	private customers = new Map<string, CRMCustomer>()
 	private activities: CRMActivity[] = []
@@ -17,6 +40,11 @@ export class InMemoryStorage implements CRMStorage {
 		messagesToday: 0,
 		conversionRate: 0,
 		averageResponseTime: null,
+	}
+	private maxConversationHistory: MessageLimit
+
+	constructor(options: InMemoryStorageOptions = {}) {
+		this.maxConversationHistory = resolveMessageLimit(options.maxConversationHistory)
 	}
 
 	async init(): Promise<void> {
@@ -84,13 +112,36 @@ export class InMemoryStorage implements CRMStorage {
 	// Message operations
 	async saveMessage(message: CRMMessage): Promise<void> {
 		this.messages.push(message)
+		// Pangkas di boundary penambahan, bukan hanya saat read — kalau hanya
+		// dipangkas saat read, array internal tetap tumbuh tanpa batas pada bot
+		// yang uptime-nya panjang.
+		this.trimConversation(message.customerJid)
 		this.analytics.totalMessages = this.messages.length
-		
+
 		const today = new Date().toDateString()
 		const messageDate = new Date(message.timestamp).toDateString()
 		if (messageDate === today) {
 			this.analytics.messagesToday++
 		}
+	}
+
+	// Buang pesan paling lama milik satu customer sampai jumlahnya <= batas.
+	// Batas per customer, jadi customer lain tidak terpengaruh.
+	private trimConversation(customerJid: string): void {
+		const max = this.maxConversationHistory
+		if (max === undefined) return
+
+		const indices: number[] = []
+		for (let i = 0; i < this.messages.length; i++) {
+			if (this.messages[i]?.customerJid === customerJid) indices.push(i)
+		}
+
+		if (indices.length <= max) return
+
+		// Sisipkan pesan terbaru, buang sisanya. Array disusun ulang, bukan
+		// displice per-item, supaya urutan pesan tetap terjaga.
+		const dropped = new Set(indices.slice(0, indices.length - max))
+		this.messages = this.messages.filter((_, i) => !dropped.has(i))
 	}
 
 	async getMessages(customerJid: string, limit?: number): Promise<CRMMessage[]> {

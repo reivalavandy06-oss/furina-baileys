@@ -80,7 +80,12 @@ export class CRMManager {
 		}
 
 		// Use provided storage atau default ke InMemoryStorage
-		this.storage = config.storage ?? new InMemoryStorage()
+		// Default storage ikut menerima maxConversationHistory, jadi batas ini
+		// benar-benar diterapkan. Storage milik caller sendiri tetap sepenuhnya
+		// tanggung jawab caller — interface CRMStorage tidak punya setter batas.
+		this.storage = config.storage ?? new InMemoryStorage({
+			maxConversationHistory: this.config.maxConversationHistory
+		})
 
 		// Initialize sub-modules
 		this.customer = new CRMCustomerManager(this.storage)
