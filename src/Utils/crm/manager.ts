@@ -52,6 +52,14 @@ export class CRMManager {
 	private storage: CRMStorage
 	private config: Required<CRMConfig>
 
+	// Reference listener disimpan supaya .off() bisa dipanggil dengan handler
+	// yang sama persis. Arrow inline tidak bisa dilepas — itu sumber leak-nya.
+	private readonly handleUpsert = ({ messages }: any): void => {
+		this.handleMessageUpsert(messages)
+	}
+	private listenersAttached = false
+	private disposed = false
+
 	// Sub-modules (public access buat advanced usage)
 	public customer: CRMCustomerManager
 	public activity: CRMActivityTracker
@@ -92,8 +100,34 @@ export class CRMManager {
 	}
 
 	// Close storage (panggil ini pas bot shutdown)
+	// Delegate ke dispose() supaya user yang sudah memanggil close() ikut
+	// dapat listener yang benar-benar dilepas.
 	async close(): Promise<void> {
+		this.dispose()
 		await this.storage.close()
+	}
+
+	// ═══════════════════════════════════════════════════════════════════
+	// LIFECYCLE
+	// ═══════════════════════════════════════════════════════════════════
+
+	// Lepas semua listener milik instance ini. Idempoten: panggil berkali-kali
+	// aman. Hanya melepas handler yang kita daftarkan sendiri — listener lain di
+	// sock.ev (termasuk instance CRMManager lain) tidak disentuh.
+	dispose(): void {
+		if (this.disposed) return
+		this.disposed = true
+
+		if (this.listenersAttached) {
+			this.sock.ev?.off('messages.upsert', this.handleUpsert)
+			this.listenersAttached = false
+		}
+	}
+
+	// Status lifecycle, supaya kode eksternal bisa tahu manager sudah dibuang
+	// sebelum memasang listener lagi.
+	get isDisposed(): boolean {
+		return this.disposed
 	}
 
 	// ═══════════════════════════════════════════════════════════════════
@@ -218,13 +252,19 @@ export class CRMManager {
 	// ═══════════════════════════════════════════════════════════════════
 
 	private attachListeners(): void {
-		// Listen buat incoming messages
-		this.sock.ev.on('messages.upsert', ({ messages }: any) => {
-			this.handleMessageUpsert(messages)
-		})
+		// Idempoten: panggil ulang pada instance yang sama tidak boleh menambah
+		// listener kedua, karena tiap handler yang menumpuk akan memproses event
+		// yang sama berulang (customer double-track, message terhitung dua kali).
+		if (this.disposed || this.listenersAttached) return
+
+		this.sock.ev.on('messages.upsert', this.handleUpsert)
+		this.listenersAttached = true
 	}
 
 	private handleMessageUpsert(messages: any[]): void {
+		// Setelah dispose, event yang sudah terlanjur di-queue tidak boleh
+		// menyentuh storage yang sudah ditutup.
+		if (this.disposed) return
 		if (!Array.isArray(messages)) return
 
 		for (const msg of messages) {
