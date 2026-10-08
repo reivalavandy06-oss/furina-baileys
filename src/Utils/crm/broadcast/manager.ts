@@ -70,6 +70,17 @@ export class CRMBroadcastManager {
 	public registry: CRMChannelRegistryStore | null
 	private quarantined = new Set<string>()
 	private sendTimestamps: number[] = []
+	// Handler disimpan sebagai field supaya .off() menerima reference yang sama
+	// persis. Arrow inline tidak bisa dilepas — itu sumber leak-nya.
+	private readonly handleConnectionUpdate = (update: any): void => {
+		if (this.disposed) return
+		if (update?.connection === 'close') {
+			const code = update?.lastDisconnect?.error?.output?.statusCode ?? 0
+			this.health.reportDisconnect(code)
+		}
+	}
+	private connectionListenerAttached = false
+	private disposed = false
 
 	constructor(sock: any, storage: CRMStorage, config?: Partial<CRMBroadcastConfig>) {
 		this.sock = sock
@@ -83,13 +94,34 @@ export class CRMBroadcastManager {
 			: null
 
 		if (this.sock?.ev) {
-			this.sock.ev.on('connection.update', (update: any) => {
-				if (update?.connection === 'close') {
-					const code = update?.lastDisconnect?.error?.output?.statusCode ?? 0
-					this.health.reportDisconnect(code)
-				}
-			})
+			this.sock.ev.on('connection.update', this.handleConnectionUpdate)
+			this.connectionListenerAttached = true
 		}
+	}
+
+	// ═══════════════════════════════════════════════════════════════
+	// LIFECYCLE
+	// ═══════════════════════════════════════════════════════════════
+
+	// Berhenti total: lepas listener milik instance ini dan dispose tracker yang
+	// di-instance di sini. Idempoten, dan listener milik instance lain maupun
+	// listener eksternal di sock.ev tidak disentuh.
+	dispose(): void {
+		if (this.disposed) return
+		this.disposed = true
+
+		if (this.connectionListenerAttached) {
+			this.sock?.ev?.off('connection.update', this.handleConnectionUpdate)
+			this.connectionListenerAttached = false
+		}
+
+		// Manager yang memiliki tracker: dispose manager tidak boleh meninggalkan
+		// listener tracker masih nempel.
+		this.tracker.dispose()
+	}
+
+	get isDisposed(): boolean {
+		return this.disposed
 	}
 
 	async send(

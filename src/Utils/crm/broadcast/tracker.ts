@@ -26,6 +26,24 @@ export class CRMDeliveryTracker {
 	private records = new Map<string, CRMBroadcastMessage>()
 	// Timer buat nge-sweep yang unconfirmed
 	private sweepTimer: ReturnType<typeof setInterval> | null = null
+	// Handler disimpan sebagai field supaya .off() menerima reference yang sama
+	// persis. Arrow inline tidak bisa dilepas — itu sumber leak-nya.
+	private readonly handleUpdate = (updates: any[]): void => {
+		if (!Array.isArray(updates)) return
+
+		for (const entry of updates) {
+			const messageId = entry?.key?.id
+			const status = entry?.update?.status
+
+			// Cuma proses message yang kita track + status numeric valid
+			if (!messageId || typeof status !== 'number') continue
+			if (!this.records.has(messageId)) continue
+
+			this.applyStatus(messageId, status)
+		}
+	}
+	private attached = false
+	private disposed = false
 
 	constructor(sock?: any) {
 		this.sock = sock
@@ -37,26 +55,45 @@ export class CRMDeliveryTracker {
 	}
 
 	// ═══════════════════════════════════════════════════════════════
+	// LIFECYCLE
+	// ═══════════════════════════════════════════════════════════════
+
+	// Lepas listener + sweep timer milik instance ini dan buang records.
+	// Idempoten, dan hanya menyentuh handler yang kita daftarkan sendiri.
+	dispose(): void {
+		if (this.disposed) return
+		this.disposed = true
+
+		if (this.attached) {
+			this.sock?.ev?.off('messages.update', this.handleUpdate)
+			this.attached = false
+		}
+
+		if (this.sweepTimer) {
+			clearInterval(this.sweepTimer)
+			this.sweepTimer = null
+		}
+
+		this.records.clear()
+	}
+
+	// ═══════════════════════════════════════════════════════════════
 	// ATTACH - listen ke messages.update (sumber kebenaran delivery)
 	// ═══════════════════════════════════════════════════════════════
+
 	attach(): void {
-		this.sock.ev.on('messages.update', (updates: any[]) => {
-			if (!Array.isArray(updates)) return
+		// Idempoten. Constructor sudah auto-attach, jadi pemanggil yang memanggil
+		// attach() lagi akan menambah listener kedua + interval kedua — tiap
+		// handler yang menumpuk memproses update yang sama berulang.
+		if (this.disposed || this.attached) return
 
-			for (const entry of updates) {
-				const messageId = entry?.key?.id
-				const status = entry?.update?.status
-
-				// Cuma proses message yang kita track + status numeric valid
-				if (!messageId || typeof status !== 'number') continue
-				if (!this.records.has(messageId)) continue
-
-				this.applyStatus(messageId, status)
-			}
-		})
+		this.sock.ev.on('messages.update', this.handleUpdate)
+		this.attached = true
 
 		// Sweep periodic buat tandai yang unconfirmed
-		this.sweepTimer = setInterval(() => this.sweepUnconfirmed(), 60_000)
+		if (!this.sweepTimer) {
+			this.sweepTimer = setInterval(() => this.sweepUnconfirmed(), 60_000)
+		}
 	}
 
 	// ═══════════════════════════════════════════════════════════════
@@ -157,6 +194,9 @@ export class CRMDeliveryTracker {
 	// ═══════════════════════════════════════════════════════════════
 	// CLEANUP - hapus records lama biar nggak memory leak
 	// ═══════════════════════════════════════════════════════════════
+	// Catatan: clear() TIDAK melepas listener. Ini reset state antar campaign,
+	// bukan shutdown — tracking harus tetap jalan setelahnya. Untuk berhenti
+	// total (termasuk listener + timer), pakai dispose().
 	clear(): void {
 		this.records.clear()
 
