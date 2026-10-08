@@ -10,8 +10,8 @@ Built on top of [WhiskeySockets/Baileys](https://github.com/WhiskeySockets/Baile
 
 `v1.0.6-furina` · TypeScript · Dual CJS/ESM · 🎬 [Demo Video](Media/furina-demo.mp4)
 
-[![npm version](https://img.shields.io/npm/v/furina-baileys.svg)](https://www.npmjs.com/package/furina-baileys)
-[![License](https://img.shields.io/npm/l/furina-baileys.svg)](LICENSE)
+[![npm version](https://img.shields.io/npm/v/@vanzzz/furina-baileys.svg)](https://www.npmjs.com/package/@vanzzz/furina-baileys)
+[![License](https://img.shields.io/npm/l/@vanzzz/furina-baileys.svg)](LICENSE)
 
 > [!CAUTION]
 > Baileys 7.0.0 introduced breaking changes. Check the [migration guide](https://whiskey.so/migrate-latest) before upgrading.
@@ -67,7 +67,7 @@ You still get full Baileys API access. This just handles the boring stuff so you
 ## 📦 Installation
 
 ```bash
-npm install furina-baileys
+npm install @vanzzz/furina-baileys
 ```
 
 ### Requirements
@@ -78,7 +78,7 @@ npm install furina-baileys
 ### Verify Installation
 
 ```javascript
-const baileys = require('furina-baileys')
+const baileys = require('@vanzzz/furina-baileys')
 console.log('Version:', baileys.DEFAULT_CONNECTION_CONFIG?.version)
 console.log('Browsers:', Object.keys(baileys.Browsers))
 ```
@@ -90,7 +90,7 @@ console.log('Browsers:', Object.keys(baileys.Browsers))
 ### Basic Connection (CommonJS)
 
 ```javascript
-const { makeWASocket, useMultiFileAuthState } = require('furina-baileys')
+const { makeWASocket, useMultiFileAuthState } = require('@vanzzz/furina-baileys')
 
 async function start() {
   const { state, saveCreds } = await useMultiFileAuthState('auth_info')
@@ -126,7 +126,7 @@ start()
 ### Basic Connection (ESM)
 
 ```javascript
-import makeWASocket, { useMultiFileAuthState, DisconnectReason } from 'furina-baileys'
+import makeWASocket, { useMultiFileAuthState, DisconnectReason } from '@vanzzz/furina-baileys'
 
 const { state, saveCreds } = await useMultiFileAuthState('auth_info')
 const sock = makeWASocket({ auth: state })
@@ -215,7 +215,7 @@ console.log('Custom pairing code:', code)
 Change what appears in "Linked Devices":
 
 ```javascript
-const { Browsers } = require('furina-baileys')
+const { Browsers } = require('@vanzzz/furina-baileys')
 
 const sock = makeWASocket({
   auth: state,
@@ -375,7 +375,7 @@ Track customers, conversations, activity, dan analytics.
 ### Initialize CRM
 
 ```javascript
-const { CRMBroadcastManager, InMemoryStorage } = require('furina-baileys')
+const { CRMBroadcastManager, InMemoryStorage } = require('@vanzzz/furina-baileys')
 
 const storage = new InMemoryStorage() // atau implementasi custom storage
 await storage.init()
@@ -522,7 +522,7 @@ Recognize 96+ message types termasuk view-once dan reactions.
 ### Detect Message Type
 
 ```javascript
-const { detectMessageType } = require('furina-baileys')
+const { detectMessageType } = require('@vanzzz/furina-baileys')
 
 sock.ev.on('messages.upsert', ({ messages }) => {
   for (const m of messages) {
@@ -586,7 +586,7 @@ sock.ev.on('messages.upsert', ({ messages }) => {
 Health monitoring, Gaussian jitter delay, sliding-window rate limit, dan jam tidur opt-in.
 
 > [!NOTE]
-> Anti-ban layer ini **belum terintegrasi otomatis** ke `makeWASocket`. User panggil manual dari `furina-baileys`. Integrasi otomatis di roadmap v1.0.7.
+> Anti-ban layer ini **belum terintegrasi otomatis** ke `makeWASocket`. User panggil manual dari `@vanzzz/furina-baileys`. Integrasi otomatis di roadmap v1.0.7.
 
 ### Import
 
@@ -598,7 +598,7 @@ const {
   getProfile,
   checkSendWindow,
   waitForSendWindow,
-} = require('furina-baileys')
+} = require('@vanzzz/furina-baileys')
 ```
 
 ### Profile ORI vs Business
@@ -752,7 +752,7 @@ const {
   humanSend,
   checkSendWindow,
   waitForSendWindow,
-} = require('furina-baileys')
+} = require('@vanzzz/furina-baileys')
 
 async function start() {
   const { state, saveCreds } = await useMultiFileAuthState('auth_info')
@@ -795,7 +795,7 @@ Complete WhatsApp identity resolver (LID mapping + USync queries + legacy helper
 ### Initialize Resolver
 
 ```javascript
-const { getFurinaResolver } = require('furina-baileys')
+const { getFurinaResolver } = require('@vanzzz/furina-baileys')
 
 const resolver = getFurinaResolver(sock)
 ```
@@ -842,7 +842,7 @@ console.log('Resolved:', jid1, jid2, jid3)
 ### Legacy Helpers
 
 ```javascript
-const { isGroup, isLID, isNewsletter, isUser } = require('furina-baileys')
+const { isGroup, isLID, isNewsletter, isUser } = require('@vanzzz/furina-baileys')
 
 console.log(isGroup('120363xxx@g.us')) // true
 console.log(isGroup('6281234567890@s.whatsapp.net')) // false
@@ -895,7 +895,7 @@ console.log(results) // ['...@lid', '...@lid', '...@g.us']
 Semua method juga tersedia sebagai fungsi standalone:
 
 ```javascript
-const { toWhatsAppLink, fromWhatsAppLink } = require('furina-baileys')
+const { toWhatsAppLink, fromWhatsAppLink } = require('@vanzzz/furina-baileys')
 
 const link = await toWhatsAppLink(sock, '6281234567890')
 const jid = await fromWhatsAppLink(sock, 'https://wa.me/6281234567890')
@@ -908,7 +908,7 @@ const jid = await fromWhatsAppLink(sock, 'https://wa.me/6281234567890')
 ### Basic Button
 
 ```javascript
-const { sendButton } = require('furina-baileys')
+const { sendButton } = require('@vanzzz/furina-baileys')
 
 await sendButton(sock, jid, {
   text: 'Pilih salah satu:',
@@ -1000,7 +1000,7 @@ await sendButton(sock, jid, {
 ### Button Rules
 
 ```javascript
-const { FURINA_BUTTON_RULES } = require('furina-baileys')
+const { FURINA_BUTTON_RULES } = require('@vanzzz/furina-baileys')
 
 console.log('Max buttons per message:', FURINA_BUTTON_RULES.buttonsMax) // 10
 console.log('Max template buttons:', FURINA_BUTTON_RULES.templateButtonsMax) // 3
@@ -1028,7 +1028,7 @@ try {
 ### Basic Carousel
 
 ```javascript
-const { sendCarousel } = require('furina-baileys')
+const { sendCarousel } = require('@vanzzz/furina-baileys')
 
 await sendCarousel(sock, jid, {
   cards: [
@@ -1055,7 +1055,7 @@ await sendCarousel(sock, jid, {
 ### Carousel with Rules
 
 ```javascript
-const { FURINA_CAROUSEL_RULES } = require('furina-baileys')
+const { FURINA_CAROUSEL_RULES } = require('@vanzzz/furina-baileys')
 
 console.log('Max cards:', FURINA_CAROUSEL_RULES.carouselCardsMax) // 10
 console.log('Max buttons per card:', FURINA_CAROUSEL_RULES.buttonsPerCardMax) // 10
@@ -1083,7 +1083,7 @@ Fluent builder buat compose pesan kompleks. Unifikasi text, media, button, carou
 ### Basic Usage
 
 ```javascript
-const { MessageBuilder } = require('furina-baileys')
+const { MessageBuilder } = require('@vanzzz/furina-baileys')
 
 await new MessageBuilder()
   .setText('Halo dari MessageBuilder!')
@@ -1141,7 +1141,7 @@ await new MessageBuilder()
     title: 'Furina Store',
     body: 'Promo hari ini',
     thumbnail: 'https://example.com/thumb.png',
-    sourceUrl: 'https://github.com/reivalavandy06-oss/furina-baileys',
+    sourceUrl: 'https://github.com/Avandy/furina-baileys',
   })
   .send(sock, jid)
 ```
@@ -1243,7 +1243,7 @@ Track button taps dari user.
 ### Basic Tracker
 
 ```javascript
-const { parseButtonResponse, createFurinaButtonTracker } = require('furina-baileys')
+const { parseButtonResponse, createFurinaButtonTracker } = require('@vanzzz/furina-baileys')
 
 // Manual parsing
 sock.ev.on('messages.upsert', ({ messages }) => {
@@ -1509,11 +1509,11 @@ Licensed under **Apache License 2.0** with attribution requirements.
 If you use, modify, or distribute this library, you must credit:
 - Original creators: WhiskeySockets
 - Modifications: Avandy
-- Repository: https://github.com/reivalavandy06-oss/furina-baileys
+- Repository: https://github.com/Avandy/furina-baileys
 
 **How to credit:**
 ```markdown
-Built with [Furina-Baileys](https://github.com/reivalavandy06-oss/furina-baileys)
+Built with [Furina-Baileys](https://github.com/Avandy/furina-baileys)
 Based on [WhiskeySockets/Baileys](https://github.com/WhiskeySockets/Baileys)
 Modifications by Avandy
 ```
@@ -1535,11 +1535,11 @@ Dilisensikan di bawah **Apache License 2.0** dengan syarat atribusi.
 Jika Anda menggunakan, memodifikasi, atau mendistribusikan library ini, Anda wajib memberikan kredit kepada:
 - Pembuat asli: WhiskeySockets
 - Modifikasi: Avandy
-- Repository: https://github.com/reivalavandy06-oss/furina-baileys
+- Repository: https://github.com/Avandy/furina-baileys
 
 **Cara memberikan kredit:**
 ```markdown
-Dibuat dengan [Furina-Baileys](https://github.com/reivalavandy06-oss/furina-baileys)
+Dibuat dengan [Furina-Baileys](https://github.com/Avandy/furina-baileys)
 Berdasarkan [WhiskeySockets/Baileys](https://github.com/WhiskeySockets/Baileys)
 Modifikasi oleh Avandy
 ```
@@ -1562,6 +1562,6 @@ Modifikasi oleh Avandy
 
 **Made with 💙 by the Furina-Baileys team**
 
-[Report Bug](https://github.com/reivalavandy06-oss/furina-baileys/issues) · [Request Feature](https://github.com/reivalavandy06-oss/furina-baileys/issues)
+[Report Bug](https://github.com/Avandy/furina-baileys/issues) · [Request Feature](https://github.com/Avandy/furina-baileys/issues)
 
 </div>

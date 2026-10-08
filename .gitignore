@@ -45,4 +45,8 @@ publish-log.txt
 
 # ===== FURINA: SKIP DARI REPO =====
 tests/
-docs/
+
+# ===== FORKA: JANGAN COMMIT LOCKFILE NPM =====
+# packageManager adalah yarn@4.9.2 (lihat package.json). Hanya yarn.lock
+# yang boleh di-commit. Dua lockfile = drift = "works on my machine".
+package-lock.json
