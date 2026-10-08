@@ -17,6 +17,7 @@ import {
 	extractGroupJid,
 	isIncomingMessage,
 } from './message-detector'
+import { jidNormalizedUser } from '../../WABinary'
 
 // Default config: semua fitur aktif dengan setting yang aman
 const DEFAULT_CONFIG: Required<CRMConfig> = {
@@ -230,9 +231,13 @@ export class CRMManager {
 			// Skip message dari diri sendiri
 			if (!isIncomingMessage(msg)) continue
 
-			// Extract JID customer
-			const senderJid = extractCustomerJid(msg)
-			if (!senderJid) continue
+			// Extract JID customer, lalu kanonikalkan sebelum dipakai sebagai key.
+			// WhatsApp merotasi device suffix (user:12@ -> user:34@), jadi JID mentah
+			// memecah satu orang jadi beberapa customer: history, tag, dan broadcast
+			// jadi terpecah. JID yang tidak bisa didekode tetap dipakai apa adanya.
+			const rawSenderJid = extractCustomerJid(msg)
+			if (!rawSenderJid) continue
+			const senderJid = jidNormalizedUser(rawSenderJid) || rawSenderJid
 
 			// Extract text content (pakai detector baru yang support semua type)
 			const content = extractMessageText(msg.message)

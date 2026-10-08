@@ -13,6 +13,7 @@
 //   karena WhatsApp sengaja sembunyiin PN dari LID untuk privacy.
 
 import type { Contact } from '../Types'
+import { jidNormalizedUser } from '../WABinary'
 
 export interface FurinaLIDMapping {
 	lid: string
@@ -25,14 +26,14 @@ export interface LIDResolverConfig {
 	autoPopulate?: boolean
 }
 
-// Normalisasi JID: buang device suffix (123456:0@lid → 123456@lid).
+// Normalisasi JID: buang device/agent suffix (123456:0@lid → 123456@lid).
 // Tanpa ini, mapping ke-store dua kali untuk device berbeda.
+//
+// Delegasi ke jidNormalizedUser (WABinary) supaya ada satu kanonik untuk semua
+// flow — CRM key, recipient broadcast, dan map LID↔PN tidak bisa divergen.
+// Export dipertahankan demi backward compat.
 export function normalizeJid(jid: string): string {
-	if (!jid) return jid
-	const at = jid.indexOf('@')
-	if (at === -1) return jid
-	const user = jid.slice(0, at).split(':')[0]
-	return `${user}${jid.slice(at)}`
+	return jidNormalizedUser(jid) || jid
 }
 
 export class LIDResolver {

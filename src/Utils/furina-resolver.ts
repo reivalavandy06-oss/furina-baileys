@@ -9,8 +9,9 @@
 //   - Parse link WhatsApp (wa.me / chat.whatsapp.com) jadi JID
 //   - Bulk resolve dengan chunk (hindari rate-limit)
 
-import { getLIDResolver, type LIDResolver, type FurinaLIDMapping, normalizeJid } from './lid-resolver'
+import { getLIDResolver, type LIDResolver, type FurinaLIDMapping } from './lid-resolver'
 import { getUSyncResolver, type USyncResolver, type UserInfo } from './usync-resolver'
+import { jidDecode, jidNormalizedUser } from '../WABinary'
 
 // Re-export types biar user nggak perlu import dari 2 file berbeda
 export type { FurinaLIDMapping, UserInfo }
@@ -98,9 +99,13 @@ export function createFurinaResolver(sock: any): FurinaResolver {
 			const t = target.trim()
 			if (!t) return null
 
-			// 1. Sudah JID (ada @) — normalisasi device suffix
+			// 1. Sudah JID (ada @) — normalisasi device/agent suffix supaya
+			// output konsisten dengan CRM key & recipient lain. Server kosong
+			// ("user@") ditolak: JID cacat lebih baik kena null daripada
+			// ikut terus ke seluruh flow CRM.
 			if (t.includes('@')) {
-				return normalizeJid(t)
+				if (!jidDecode(t)?.server) return null
+				return jidNormalizedUser(t)
 			}
 
 			// 2. Nomor telepon (8-15 digit, optional +)
@@ -137,8 +142,9 @@ export function createFurinaResolver(sock: any): FurinaResolver {
 				jid = pn
 			}
 
-			// Ekstrak user (strip device suffix + server)
-			const userPart = jid.split('@')[0]?.split(':')[0]
+			// Ekstrak user (strip device suffix + server) lewat jidDecode, bukan
+			// split manual: JID bisa punya agent suffix juga (user_1:5@server).
+			const userPart = jidDecode(jid)?.user
 
 			// Validasi: harus angka murni
 			if (!userPart || !/^\d+$/.test(userPart)) return null

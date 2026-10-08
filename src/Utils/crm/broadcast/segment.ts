@@ -5,6 +5,7 @@
 // apapun segment-nya — ini wajib sesuai WhatsApp Business Messaging Policy
 
 import type { CRMCustomer, CRMBroadcastSegment } from '../types'
+import { jidNormalizedUser } from '../../../WABinary'
 
 // ═══════════════════════════════════════════════════════════════════
 // FILTER SEGMENT - saring customers sesuai kriteria
@@ -14,6 +15,11 @@ export function filterSegment(
 	customers: CRMCustomer[],
 	segment: CRMBroadcastSegment
 ): CRMCustomer[] {
+	// Satu orang bisa nyimpen beberapa record customer kalau JID-nya pernah
+	// masuk dengan device suffix berbeda. Kirim ke keduanya = dua kali pesan
+	// ke orang yang sama (spam + ban lebih cepat), jadi dedupe by JID kanonik.
+	const seen = new Set<string>()
+
 	return customers.filter((customer) => {
 		// SAFETY PALING PENTING: jangan pernah kirim ke yang opt-out/blocked
 		if (customer.status === 'blocked') {
@@ -48,6 +54,12 @@ export function filterSegment(
 		if (segment.customFilter && !segment.customFilter(customer)) {
 			return false
 		}
+
+		// 6. Dedupe per orang, bukan per record. Dicatat setelah semua filter
+		// lolos supaya customer yang ter-exclude tidak memakan slot di Set.
+		const canonical = jidNormalizedUser(customer.jid) || customer.jid
+		if (seen.has(canonical)) return false
+		seen.add(canonical)
 
 		return true
 	})

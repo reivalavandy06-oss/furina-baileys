@@ -1,6 +1,8 @@
 // member labels: teach the bot "who" someone is, not just "which id" they own.
 // roles per group + custom tags + activity tracking, all auto-captured.
 
+import { jidNormalizedUser } from '../WABinary'
+
 export type FurinaGroupRole = 'owner' | 'admin' | 'member'
 
 export interface MemberLabelData {
@@ -59,11 +61,20 @@ export class MemberLabelsManager {
 		return null
 	}
 
+	// Semua akses ke members map lewat sini, jadi JID ber-device-suffix
+	// (user:12@lid) resolve ke entry yang sama dengan user:34@lid. Tanpa ini
+	// satu orang terpecah jadi beberapa member: label, role, dan activity
+	// count-nya terpisah. JID yang tidak bisa didekode dipakai apa adanya.
+	private resolveKey(jid: string): string {
+		return jidNormalizedUser(jid) || jid
+	}
+
 	private ensure(lid: string): MemberLabelData {
-		let entry = this.members.get(lid)
+		const key = this.resolveKey(lid)
+		let entry = this.members.get(key)
 		if (!entry) {
 			entry = {
-				lid,
+				lid: key,
 				pn: null,
 				pushname: null,
 				labels: [],
@@ -73,7 +84,7 @@ export class MemberLabelsManager {
 				firstSeen: Date.now(),
 				lastSeen: Date.now()
 			}
-			this.members.set(lid, entry)
+			this.members.set(key, entry)
 			this.evictIfNeeded()
 		}
 		return entry
@@ -166,7 +177,7 @@ export class MemberLabelsManager {
 	}
 
 	removeLabel(lid: string, label: string): void {
-		const entry = this.members.get(lid)
+		const entry = this.members.get(this.resolveKey(lid))
 		if (!entry) return
 		entry.labels = entry.labels.filter((l) => l !== label)
 	}
@@ -177,17 +188,17 @@ export class MemberLabelsManager {
 
 	// ---- reads ----
 	getLabel(lid: string): MemberLabelData | null {
-		return this.members.get(lid) ?? null
+		return this.members.get(this.resolveKey(lid)) ?? null
 	}
 
 	getAllLabels(lid: string): string[] {
-		const entry = this.members.get(lid)
+		const entry = this.members.get(this.resolveKey(lid))
 		if (!entry) return []
 		return [...entry.labels, ...entry.autoLabels]
 	}
 
 	getRoleInGroup(lid: string, groupId: string): FurinaGroupRole {
-		const entry = this.members.get(lid)
+		const entry = this.members.get(this.resolveKey(lid))
 		return entry?.groupRoles[groupId] ?? 'member'
 	}
 
@@ -234,7 +245,11 @@ export class MemberLabelsManager {
 	importAll(data: MemberLabelData[]): void {
 		if (!Array.isArray(data)) return
 		for (const item of data) {
-			if (item?.lid) this.members.set(item.lid, item)
+			if (!item?.lid) continue
+			// Kanonikalkan juga field lid di record-nya, bukan cuma key-nya, biar
+			// exportAll → importAll → exportAll idempoten.
+			const key = this.resolveKey(item.lid)
+			this.members.set(key, key === item.lid ? item : { ...item, lid: key })
 		}
 	}
 }
