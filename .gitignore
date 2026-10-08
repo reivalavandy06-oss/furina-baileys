@@ -9,7 +9,10 @@ session/
 # ===== ORIGINAL BAILEYS =====
 .DS_Store
 .env
-.yarn/
+.yarn/*
+!.yarn/
+!.yarn/releases/
+!.yarn/releases/yarn-4.9.2.cjs
 */.DS_Store
 auth_info*.json
 baileys_auth_info*
