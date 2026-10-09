@@ -78,23 +78,105 @@ export function parseButtonResponse(m: WAMessage): FurinaButtonResponse | null {
 // Klien WA ngirim tap sebagai quoted-text; tracker nyocokin stanzaId quote
 // sama message button yang kita kirim sendiri.
 
+export interface FurinaButtonTrackerOptions {
+	// Umur maksimum satu entry. Entry yang lewat TTL tidak akan dieksekusi
+	// dan dibuang. Infinity = tanpa batas umur.
+	ttlMs?: number
+	// Batas jumlah entry. Saat penuh, entry terlama dibuang lebih dulu.
+	// Infinity = tanpa batas jumlah.
+	maxEntries?: number
+}
+
+// Default konservatif: satu jam masih cukup untuk tap yang terjadi agak
+// jauh setelah pesan dikirim, dan 500 entry cukup untuk bot yang mengirim
+// tombol rutin tanpa membiarkan registry tumbuh tanpa batas.
+const DEFAULT_TTL_MS = 60 * 60 * 1000
+const DEFAULT_MAX_ENTRIES = 500
+
+// Nilai invalid kembali ke default, bukan ke 0 atau tanpa batas. Mematikan
+// seluruh tracking karena salah ketik lebih berbahaya daripada memakai
+// default: hasilnya tetap bounded dan tracking tetap bekerja.
+function resolveTtlMs(value: number | undefined): number {
+	if (value === Infinity) return Infinity
+	if (typeof value !== 'number' || Number.isNaN(value) || value <= 0) return DEFAULT_TTL_MS
+	return value
+}
+
+function resolveMaxEntries(value: number | undefined): number {
+	if (value === Infinity) return Infinity
+	if (typeof value !== 'number' || Number.isNaN(value) || value <= 0) return DEFAULT_MAX_ENTRIES
+	return Math.floor(value)
+}
+
+interface TrackedButtons {
+	labels: Map<string, string>
+	expiresAt: number
+}
+
 export interface FurinaButtonTracker {
 	sendButton(sock: FurinaSocket, jid: string, opts: FurinaButtonOptions, extra?: MessageRelayOptions): Promise<WAMessage>
 	sendCarousel(sock: FurinaSocket, jid: string, opts: FurinaCarouselOptions, extra?: MessageRelayOptions): Promise<WAMessage>
 	parseTap(m: WAMessage): FurinaButtonResponse | null
+	// Jumlah entry yang masih tercatat.
+	readonly size: number
+	// Buang semua state internal. Idempoten, dan tracker tetap inert
+	// sesudahnya: track() tidak akan menambah entry lagi.
+	dispose(): void
 }
 
-export function createFurinaButtonTracker(): FurinaButtonTracker {
-	// stanzaId (ID yang KITA generate sendiri) -> Map(label -> id)
-	const registry = new Map<string, Map<string, string>>()
+export function createFurinaButtonTracker(options: FurinaButtonTrackerOptions = {}): FurinaButtonTracker {
+	const ttlMs = resolveTtlMs(options.ttlMs)
+	const maxEntries = resolveMaxEntries(options.maxEntries)
+
+	// stanzaId (ID yang KITA generate sendiri) -> label -> id button
+	const registry = new Map<string, TrackedButtons>()
+	let disposed = false
+
+	const isExpired = (entry: TrackedButtons): boolean => entry.expiresAt <= Date.now()
+
+	// Buang entry yang lewat TTL. Dijalankan dari jalur baca dan tulis, bukan
+	// dari timer: tidak ada interval yang perlu dihentikan, jadi tidak ada
+	// yang menahan Node process tetap hidup.
+	function purgeExpired(): void {
+		for (const [key, entry] of registry) {
+			if (isExpired(entry)) registry.delete(key)
+		}
+	}
+
+	// Jaga dua batas sekaligus. Expired dibuang lebih dulu supaya entry yang
+	// masih hidup tidak tergantikan oleh entry expired.
+	function enforceBounds(): void {
+		purgeExpired()
+		if (maxEntries === Infinity) return
+		// Map mempertahankan urutan insert, jadi key pertama = entry terlama.
+		while (registry.size > maxEntries) {
+			const oldest = registry.keys().next()
+			if (oldest.done) break
+			registry.delete(oldest.value)
+		}
+	}
 
 	function track(msgId: string, pairs: Array<[string, string]>): void {
+		// Setelah dispose tracker tidak boleh hidup lagi: track jadi no-op.
+		if (disposed) return
+
 		const m = new Map<string, string>()
 		for (const [label, bid] of pairs) m.set(label, bid)
-		registry.set(msgId, m)
+		registry.set(msgId, { labels: m, expiresAt: Date.now() + ttlMs })
+		enforceBounds()
 	}
 
 	return {
+		get size() {
+			return registry.size
+		},
+
+		dispose() {
+			if (disposed) return
+			disposed = true
+			registry.clear()
+		},
+
 		async sendButton(sock, jid, opts, extra) {
 			const msgId = generateMessageIDV2()
 			const sent = await sendButton(sock, jid, opts, { messageId: msgId, ...extra })
@@ -121,7 +203,8 @@ export function createFurinaButtonTracker(): FurinaButtonTracker {
 		},
 
 		parseTap(m) {
-			// Jalur 1: respons resmi
+			// Jalur 1: respons resmi. Tidak menyentuh registry, jadi tetap
+			// bekerja setelah dispose.
 			const official = parseButtonResponse(m)
 			if (official) return official
 
@@ -132,14 +215,19 @@ export function createFurinaButtonTracker(): FurinaButtonTracker {
 			const text = etm?.text ?? ''
 			const stanzaId = ctx?.stanzaId
 
+			// Buang yang expired sebelum membaca, supaya entry basi tidak pernah
+			// dieksekusi dan tidak ikut disisir di fallback.
+			purgeExpired()
+
 			let id: string | undefined
-			if (stanzaId && registry.has(stanzaId)) {
-				id = registry.get(stanzaId)!.get(text)
+			if (stanzaId) {
+				id = registry.get(stanzaId)?.labels.get(text)
 			}
 			if (!id && ctx?.quotedMessage?.interactiveMessage) {
-				for (const map of registry.values()) {
-					if (map.has(text)) {
-						id = map.get(text)
+				for (const entry of registry.values()) {
+					const matched = entry.labels.get(text)
+					if (matched) {
+						id = matched
 						break
 					}
 				}
