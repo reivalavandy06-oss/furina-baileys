@@ -46,6 +46,17 @@ const DEFAULT_CONFIG: CRMBroadcastConfig = {
 	registryPath: DEFAULT_REGISTRY_FILE,
 }
 
+// Panjang rolling window untuk batas per jam. Rolling, bukan clock-hour:
+// batasnya sliding 60 menit ke belakang dari waktu sekarang, mengikuti filter
+// yang sebelumnya dipakai (now - t < 3600_000).
+const HOUR_WINDOW_MS = 3_600_000
+
+// Satu slot yang sudah diklaim. Dipakai objek, bukan number biasa, supaya
+// slot yang gagal dikirim bisa dilepas tepat oleh pemegangnya.
+interface HourSlot {
+	at: number
+}
+
 export interface BroadcastSendResult extends CRMBroadcastResult {
 	status: 'completed' | 'paused' | 'aborted'
 	warnings: string[]
@@ -69,6 +80,10 @@ export class CRMBroadcastManager {
 	public health: CRMHealthMonitor
 	public registry: CRMChannelRegistryStore | null
 	private quarantined = new Set<string>()
+	// Budget per jam untuk sendToGroups. Harus hidup di lifetime instance:
+	// kalau disimpan lokal di dalam method, tiap panggilan mulai dari nol dan
+	// maxPerHour tidak pernah terakumulasi lintas panggilan.
+	private hourSlots: HourSlot[] = []
 	private sendTimestamps: number[] = []
 	// Handler disimpan sebagai field supaya .off() menerima reference yang sama
 	// persis. Arrow inline tidak bisa dilepas — itu sumber leak-nya.
@@ -248,6 +263,30 @@ export class CRMBroadcastManager {
 		}
 	}
 
+	// Klaim satu slot pada rolling window 60 menit, atau null kalau sudah penuh.
+	// Prune terjadi di sini (lazy), bukan lewat timer, jadi tidak ada interval
+	// yang harus dihentikan. Timestamp tepat 60 menit lalu dianggap expired.
+	//
+	// Klaim dilakukan sinkron di titik pengecekan, tanpa await di antaranya.
+	// Itu yang mencegah dua sendToGroups() paralel sama-sama lolos pengecekan:
+	// slot sudah tercatat sebelum eksekusi-yield pertama.
+	private claimHourSlot(now: number, maxPerHour: number): HourSlot | null {
+		this.hourSlots = this.hourSlots.filter((s) => now - s.at < HOUR_WINDOW_MS)
+		if (this.hourSlots.length >= maxPerHour) return null
+
+		const slot: HourSlot = { at: now }
+		this.hourSlots.push(slot)
+		return slot
+	}
+
+	// Lepas slot yang diklaim tapi tidak jadi terpakai, supaya pengiriman yang
+	// gagal atau group yang dilewati tidak membekukan budget yang tidak
+	// pernah terpakai.
+	private releaseHourSlot(slot: HourSlot): void {
+		const idx = this.hourSlots.indexOf(slot)
+		if (idx !== -1) this.hourSlots.splice(idx, 1)
+	}
+
 	getQuarantined(): string[] {
 		return Array.from(this.quarantined)
 	}
@@ -304,7 +343,6 @@ export class CRMBroadcastManager {
 		let sentCount = 0
 		let failedCount = 0
 		let status: SendToGroupsResult['status'] = 'completed'
-		const hourTimestamps: number[] = []
 
 		for (const groupJid of groupJids) {
 			if (this.health.shouldPause()) {
@@ -313,11 +351,10 @@ export class CRMBroadcastManager {
 				break
 			}
 
-			const now = Date.now()
-			const recent = hourTimestamps.filter((t) => now - t < 3600_000)
-			hourTimestamps.length = 0
-			hourTimestamps.push(...recent)
-			if (hourTimestamps.length >= maxPerHour) {
+			// Slot diklaim di sini, sebelum ada await, lalu dilepas lagi kalau
+			// group ternyata tidak jadi dikirimi pesan.
+			const slot = this.claimHourSlot(Date.now(), maxPerHour)
+			if (!slot) {
 				console.warn('[GROUP] THROTTLED: cap group per jam')
 				status = 'throttled'
 				break
@@ -325,6 +362,7 @@ export class CRMBroadcastManager {
 
 			const isMember = await isBotMemberOfGroup(this.sock, groupJid)
 			if (!isMember) {
+				this.releaseHourSlot(slot)
 				warnings.push(`Skip ${groupJid}: bot bukan member`)
 				continue
 			}
@@ -337,16 +375,15 @@ export class CRMBroadcastManager {
 			if (options.dryRun) {
 				console.log('[GROUP DRY RUN] would send to', groupJid)
 				sentCount++
-				hourTimestamps.push(Date.now())
 				continue
 			}
 
 			try {
 				await this.sock.sendMessage(groupJid, { text: content })
 				sentCount++
-				hourTimestamps.push(Date.now())
 				this.health.reportDeliverySuccess()
 			} catch (err) {
+				this.releaseHourSlot(slot)
 				const e = err as any
 				const code = e?.output?.statusCode ?? e?.statusCode ?? 0
 				if (code === 403 || String(e?.message ?? '').includes('not available')) {
