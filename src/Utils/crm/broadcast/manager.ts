@@ -27,6 +27,8 @@ import {
 	normalizeChannelJid,
 } from './channel'
 import { CRMChannelRegistryStore, DEFAULT_REGISTRY_FILE } from './registry'
+import { BroadcastQuarantineStore, DEFAULT_QUARANTINE_FILE } from './quarantine'
+import { jidNormalizedUser } from '../../../WABinary'
 
 export interface CRMBroadcastConfig {
 	minDelayMs: number
@@ -35,6 +37,9 @@ export interface CRMBroadcastConfig {
 	newChatPenaltyMs: number
 	maxRetries: number
 	registryPath: string | null
+	// File untuk menyimpan grup yang kena 403. null = tanpa persistensi,
+	// quarantine hanya hidup selama instance ini hidup.
+	quarantinePath: string | null
 }
 
 const DEFAULT_CONFIG: CRMBroadcastConfig = {
@@ -44,6 +49,7 @@ const DEFAULT_CONFIG: CRMBroadcastConfig = {
 	newChatPenaltyMs: 2500,
 	maxRetries: 3,
 	registryPath: DEFAULT_REGISTRY_FILE,
+	quarantinePath: DEFAULT_QUARANTINE_FILE,
 }
 
 // Panjang rolling window untuk batas per jam. Rolling, bukan clock-hour:
@@ -80,6 +86,7 @@ export class CRMBroadcastManager {
 	public health: CRMHealthMonitor
 	public registry: CRMChannelRegistryStore | null
 	private quarantined = new Set<string>()
+	private quarantineStore: BroadcastQuarantineStore | null = null
 	// Budget per jam untuk sendToGroups. Harus hidup di lifetime instance:
 	// kalau disimpan lokal di dalam method, tiap panggilan mulai dari nol dan
 	// maxPerHour tidak pernah terakumulasi lintas panggilan.
@@ -107,6 +114,16 @@ export class CRMBroadcastManager {
 		this.registry = this.config.registryPath
 			? new CRMChannelRegistryStore(this.config.registryPath)
 			: null
+
+		// Quarantine dimuat sekali di sini, bukan saat setiap pengecekan grup,
+		// supaya tidak ada I/O disk di jalur panas. Grup yang kena 403 pada
+		// instance sebelumnya langsung tersaring tanpa dikirim ulang.
+		this.quarantineStore = this.config.quarantinePath
+			? new BroadcastQuarantineStore(this.config.quarantinePath)
+			: null
+		for (const jid of this.quarantineStore?.list() ?? []) {
+			this.quarantined.add(jidNormalizedUser(jid) || jid)
+		}
 
 		if (this.sock?.ev) {
 			this.sock.ev.on('connection.update', this.handleConnectionUpdate)
@@ -172,7 +189,7 @@ export class CRMBroadcastManager {
 				status = 'paused'
 				break
 			}
-			if (this.quarantined.has(customer.jid)) continue
+			if (this.isQuarantined(customer.jid)) continue
 
 			await this.waitForRateSlot()
 
@@ -234,7 +251,7 @@ export class CRMBroadcastManager {
 				const code = e?.output?.statusCode ?? e?.statusCode ?? 0
 				const message = String(e?.message ?? '')
 				if (code === 403 || message.includes('not available')) {
-					this.quarantined.add(customer.jid)
+					this.markQuarantined(customer.jid, code)
 					this.health.reportDeliveryFailure()
 					return
 				}
@@ -289,6 +306,47 @@ export class CRMBroadcastManager {
 
 	getQuarantined(): string[] {
 		return Array.from(this.quarantined)
+	}
+
+	// Lepas quarantine. Tanpa ini, grup yang kena 403 akan tersaring permanen
+	// karena memang tidak ada cara lain untuk memulihkannya setelah operator
+	// memperbaiki izin bot. Panggil tanpa argumen untuk kosongkan semua.
+	clearQuarantine(jid?: string): void {
+		if (jid === undefined) {
+			this.quarantined.clear()
+			this.quarantineStore?.clear()
+			return
+		}
+
+		const key = jidNormalizedUser(jid) || jid
+		this.quarantined.delete(key)
+		this.quarantineStore?.remove(key)
+	}
+
+	// Kunci quarantine selalu JID kanonik supaya grup yang sama tidak masuk
+	// dua kali lewat bentuk JID yang berbeda.
+	private quarantineKey(jid: string): string {
+		return jidNormalizedUser(jid) || jid
+	}
+
+	private isQuarantined(jid: string): boolean {
+		return this.quarantined.has(this.quarantineKey(jid))
+	}
+
+	// Masukkan ke quarantine dan simpan. Kalau gagal disimpan, state tetap
+	// ada di memori: lebih aman tidak mengirim ulang pada sesi ini daripada
+	// mengira sudah tersimpan padahal tidak.
+	private markQuarantined(jid: string, code: number): void {
+		const key = this.quarantineKey(jid)
+		if (this.quarantined.has(key)) return
+
+		this.quarantined.add(key)
+		if (!this.quarantineStore?.add(key, code)) {
+			console.warn(
+				`[QUARANTINE] ${key} hanya berlaku di memori (gagal disimpan). ` +
+				'Restart berikutnya tidak akan remembersinya.'
+			)
+		}
 	}
 
 	getHealthReport() {
@@ -351,6 +409,13 @@ export class CRMBroadcastManager {
 				break
 			}
 
+			// Grup yang sudah dikarantina (403 di instance sebelumnya atau sesi ini)
+			// dilewati tanpa memakai slot rate limit dan tanpa dicoba kirim lagi.
+			if (this.isQuarantined(groupJid)) {
+				warnings.push(`Skip ${groupJid}: dikarantina setelah 403`)
+				continue
+			}
+
 			// Slot diklaim di sini, sebelum ada await, lalu dilepas lagi kalau
 			// group ternyata tidak jadi dikirimi pesan.
 			const slot = this.claimHourSlot(Date.now(), maxPerHour)
@@ -387,6 +452,10 @@ export class CRMBroadcastManager {
 				const e = err as any
 				const code = e?.output?.statusCode ?? e?.statusCode ?? 0
 				if (code === 403 || String(e?.message ?? '').includes('not available')) {
+					// Dikarantina di manager juga, bukan cuma di result percakapan:
+					// kalau hanya di array lokal, grup yang sama akan dikirim ulang
+					// di panggilan berikutnya.
+					this.markQuarantined(groupJid, code)
 					quarantined.push(groupJid)
 					console.warn('[GROUP] Quarantine:', groupJid)
 				}
