@@ -191,7 +191,10 @@ export class CRMBroadcastManager {
 			}
 			if (this.isQuarantined(customer.jid)) continue
 
-			await this.waitForRateSlot()
+			// Slot diklaim menunggu sampai tersedia lalu dicatat sinkron di
+			// titik pengecekan — tidak ada await di antaranya, jadi dua send()
+			// paralel atau send yang masih in-flight tidak bisa menembus batas.
+			const slot = await this.claimMinuteSlot()
 
 			let delay = gaussianDelay(this.config.minDelayMs, this.config.maxDelayMs)
 			if (customer.messageCount === 0) delay += this.config.newChatPenaltyMs
@@ -201,10 +204,19 @@ export class CRMBroadcastManager {
 			this.health.reportContent(content)
 
 			if (options.dryRun) {
+				// Dry run tidak pernah mengonsumsi budget (behavior existing),
+				// jadi slot yang barusan diklaim dikembalikan.
+				this.releaseMinuteSlot(slot)
 				this.tracker.track(`dry_${Date.now()}_${customer.jid}`, customer.jid, template, content)
 				continue
 			}
-			await this.sendWithRetry(customer, template, content)
+			const sent = await this.sendWithRetry(customer, template, content)
+			if (!sent) {
+				// Attempt yang benar-benar dilakukan tapi gagal juga tidak
+				// mengonsumsi budget (behavior existing: timestamp hanya
+				// dicatat saat sukses), jadi slotnya dikembalikan.
+				this.releaseMinuteSlot(slot)
+			}
 		}
 
 		const records = this.tracker.getAllRecords().filter((r) => r.sentAt >= startedAt)
@@ -236,16 +248,17 @@ export class CRMBroadcastManager {
 		customer: CRMCustomer,
 		template: string,
 		content: string
-	): Promise<void> {
+	): Promise<boolean> {
 		let attempts = 0
 		while (attempts <= this.config.maxRetries) {
 			try {
 				const sentMsg = await this.sock.sendMessage(customer.jid, { text: content })
 				const messageId = sentMsg?.key?.id ?? `unk_${Date.now()}`
 				this.tracker.track(messageId, customer.jid, template, content)
-				this.sendTimestamps.push(Date.now())
 				this.health.reportDeliverySuccess()
-				return
+				// Slot per menit sudah diklaim pemanggil sebelum attempt;
+				// sukses berarti slot itu sah untuk dikonsumsi.
+				return true
 			} catch (err) {
 				const e = err as any
 				const code = e?.output?.statusCode ?? e?.statusCode ?? 0
@@ -253,7 +266,7 @@ export class CRMBroadcastManager {
 				if (code === 403 || message.includes('not available')) {
 					this.markQuarantined(customer.jid, code)
 					this.health.reportDeliveryFailure()
-					return
+					return false
 				}
 				attempts++
 				if (attempts <= this.config.maxRetries) await sleep(2000 * attempts)
@@ -267,17 +280,41 @@ export class CRMBroadcastManager {
 			rec.error = `failed after ${this.config.maxRetries} retries`
 		}
 		this.health.reportDeliveryFailure()
+		return false
 	}
 
-	private async waitForRateSlot(): Promise<void> {
+	// Klaim satu slot batas per menit. Menunggu sampai ada slot bebas — perilaku
+	// lama waitForRateSlot() memang memblokir, bukan skip — lalu mencatatnya
+	// di titik yang sama dengan pengecekan, tanpa await di antaranya. Itu
+	// penutup celah reentrancy: sebelumnya pengecekan dan pencatatan dipisahkan
+	// oleh await sleep() beberapa detik plus await sendMessage(), jadi dua
+	// send() paralel bisa sama-sama lolos pengecekan.
+	//
+	// Window rolling 60 detik; timestamp tepat 60 detik dianggap expired,
+	// mengikuti operator lama (now - t < 60_000). Prune lazy di sini, tanpa
+	// timer: tidak ada interval yang menahan process dan store tetap bounded
+	// karena klaim hanya terjadi saat jumlah di bawah batas.
+	private async claimMinuteSlot(): Promise<number> {
 		for (;;) {
 			const now = Date.now()
 			this.sendTimestamps = this.sendTimestamps.filter((t) => now - t < 60_000)
-			if (this.sendTimestamps.length < this.config.maxPerMinute) return
+			if (this.sendTimestamps.length < this.config.maxPerMinute) {
+				this.sendTimestamps.push(now)
+				return now
+			}
 			const oldest = this.sendTimestamps[0] ?? now
 			const waitMs = Math.max(60_000 - (now - oldest) + 500, 1000)
 			await sleep(waitMs)
 		}
+	}
+
+	// Kembalikan slot yang diklaim tapi tidak jadi dikonsumsi, yaitu saat
+	// dry run atau saat attempt gagal. Identitas slot adalah nilai timestampnya:
+	// dua klaim pada milidetik yang sama bernilai identik, dan membuang salah
+	// satunya tetap menyisakan jumlah yang benar di window.
+	private releaseMinuteSlot(slot: number): void {
+		const idx = this.sendTimestamps.indexOf(slot)
+		if (idx !== -1) this.sendTimestamps.splice(idx, 1)
 	}
 
 	// Klaim satu slot pada rolling window 60 menit, atau null kalau sudah penuh.
