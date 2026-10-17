@@ -20,10 +20,34 @@ const STATUS_READ = 4
 // kita tandai "unconfirmed" (bukan "failed") — biar nggak salah vonis
 const UNCONFIRMED_TIMEOUT_MS = 5 * 60 * 1000 // 5 menit
 
+// Batas buffer update yang datang sebelum record-nya terdaftar. Messages.update
+// bisa tiba sebelum await sendMessage() selesai, jadi statusnya sempat nggak ada
+// record-nya. Tanpa buffer, update itu hilang permanen dan record-nya mentok di
+// 'sent' lalu swept jadi 'failed' padahal sudah sampai.
+const MAX_PENDING_UPDATES = 200
+
+// Peringkat status string kita, untuk 검사 monotonic.
+const STATUS_RANK: Record<string, number> = {
+	pending: 0,
+	sent: 1,
+	delivered: 2,
+	read: 3,
+	failed: 4
+}
+
+// Peringkat status numeric Baileys. Angkanya sudah naik seiring progres
+// (1 = PENDING, 2 = SERVER_ACK, 3 = DELIVERY_ACK, 4 = READ, 5 = PLAYED).
+// Hanya ERROR (0) yang diberi peringkat tertinggi karena itu terminal: satu-
+// satunya yang lebih penting dari "sudah sampai".
+const numericRank = (status: number): number =>
+	status === STATUS_ERROR ? Number.MAX_SAFE_INTEGER : status
+
 export class CRMDeliveryTracker {
 	private sock: any
 	// Map messageId -> record tracking
 	private records = new Map<string, CRMBroadcastMessage>()
+	// Map messageId -> status numeric terakhir yang arrive sebelum track()
+	private pendingUpdates = new Map<string, number>()
 	// Timer buat nge-sweep yang unconfirmed
 	private sweepTimer: ReturnType<typeof setInterval> | null = null
 	// Handler disimpan sebagai field supaya .off() menerima reference yang sama
@@ -35,11 +59,14 @@ export class CRMDeliveryTracker {
 			const messageId = entry?.key?.id
 			const status = entry?.update?.status
 
-			// Cuma proses message yang kita track + status numeric valid
+			// Cuma proses update dengan status numeric valid
 			if (!messageId || typeof status !== 'number') continue
-			if (!this.records.has(messageId)) continue
 
-			this.applyStatus(messageId, status)
+			if (this.records.has(messageId)) {
+				this.applyStatus(messageId, status)
+			} else {
+				this.bufferPending(messageId, status)
+			}
 		}
 	}
 	private attached = false
@@ -75,6 +102,7 @@ export class CRMDeliveryTracker {
 		}
 
 		this.records.clear()
+		this.pendingUpdates.clear()
 	}
 
 	// ═══════════════════════════════════════════════════════════════
@@ -93,6 +121,27 @@ export class CRMDeliveryTracker {
 		// Sweep periodic buat tandai yang unconfirmed
 		if (!this.sweepTimer) {
 			this.sweepTimer = setInterval(() => this.sweepUnconfirmed(), 60_000)
+		}
+	}
+
+	// Simpan update yang arrive sebelum track() mendaftarkan record-nya.
+	// Satu entri per messageId: update berikutnya untuk id yang sama hanya
+	// memperbarui statusnya, bukan menambah entri baru.
+	private bufferPending(messageId: string, status: number): void {
+		const existing = this.pendingUpdates.get(messageId)
+		if (existing !== undefined) {
+			// Simpan yang paling maju supaya urutan pesan yang tak sampai tidak
+			// menimpa status yang sudah lebih tinggi.
+			if (numericRank(existing) >= numericRank(status)) return
+		}
+
+		this.pendingUpdates.set(messageId, status)
+
+		// Batas keras: buang entri terlama (FIFO) kalau lewat.
+		while (this.pendingUpdates.size > MAX_PENDING_UPDATES) {
+			const oldest = this.pendingUpdates.keys().next()
+			if (oldest.done) break
+			this.pendingUpdates.delete(oldest.value)
 		}
 	}
 
@@ -115,30 +164,55 @@ export class CRMDeliveryTracker {
 			deliveredAt: null,
 			readAt: null,
 		})
+
+		// Terapkan update yang telanjah nyantol sebelum record ini terdaftar,
+		// lalu buang dari buffer supaya tidak ter-apply dua kali.
+		const pending = this.pendingUpdates.get(messageId)
+		if (pending === undefined) return
+
+		this.pendingUpdates.delete(messageId)
+		this.applyStatus(messageId, pending)
 	}
 
 	// ═══════════════════════════════════════════════════════════════
 	// APPLY STATUS - konversi numeric Baileys ke status string kita
 	// ═══════════════════════════════════════════════════════════════
+	private rankOf(status: string): number {
+		return STATUS_RANK[status] ?? 0
+	}
+
+	// Status numeric Baileys -> status string kita. Status 1 (PENDING)
+	// sengaja tidak dipetakan: perilaku lama membiarkannya apa adanya.
+	private toStatus(status: number): CRMBroadcastMessage['status'] | null {
+		if (status === STATUS_ERROR) return 'failed'
+		if (status >= STATUS_READ) return 'read'
+		if (status === STATUS_DELIVERY_ACK) return 'delivered'
+		if (status === STATUS_SERVER_ACK) return 'sent'
+		return null
+	}
+
 	private applyStatus(messageId: string, status: number): void {
 		const record = this.records.get(messageId)
 		if (!record) return
 
-		if (status === STATUS_ERROR) {
-			record.status = 'failed'
+		const target = this.toStatus(status)
+		if (target === null) return
+
+		// Monotonic: jangan turunkan status yang sudah lebih maju. WhatsApp
+		// bisa mengirim ack ulang (mis. SERVER_ACK menyusul DELIVERY_ACK), dan
+		// tanpa guard ini record yang sudah 'read' bisa kembali jadi 'sent'.
+		if (this.rankOf(target) < this.rankOf(record.status)) return
+
+		if (target === 'failed') {
 			record.error = 'delivery error (status 0)'
-		} else if (status >= STATUS_READ) {
-			// READ atau PLAYED
-			record.status = 'read'
+		} else if (target === 'read') {
 			record.readAt = record.readAt ?? Date.now()
 			record.deliveredAt = record.deliveredAt ?? Date.now()
-		} else if (status === STATUS_DELIVERY_ACK) {
-			record.status = 'delivered'
+		} else if (target === 'delivered') {
 			record.deliveredAt = record.deliveredAt ?? Date.now()
-		} else if (status === STATUS_SERVER_ACK) {
-			// Terkirim ke server, belum tentu sampe HP penerima
-			record.status = 'sent'
 		}
+
+		record.status = target
 	}
 
 	// ═══════════════════════════════════════════════════════════════
