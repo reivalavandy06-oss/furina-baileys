@@ -154,16 +154,35 @@ export class CRMDeliveryTracker {
 		content: string,
 		personalizedContent: string
 	): void {
-		this.records.set(messageId, {
-			id: messageId,
-			customerJid,
-			content,
-			personalizedContent,
-			status: 'sent',
-			sentAt: Date.now(),
-			deliveredAt: null,
-			readAt: null,
-		})
+		const existing = this.records.get(messageId)
+
+		// Re-track untuk id yang sama harus menyatu, bukan menimpa. Kalau record
+		// lama sudah punya deliveredAt atau readAt, menimpanya dengan null akan
+		// menghapus bukti bahwa pesan benar-benar sampai.
+		const record: CRMBroadcastMessage = existing
+			? {
+					...existing,
+					customerJid,
+					content,
+					personalizedContent,
+					// Status lama dipertahankan kalau tidak ada alasan untuk mundur.
+					status:
+						this.rankOf(existing.status) > this.rankOf('sent')
+							? existing.status
+							: 'sent'
+				}
+			: {
+					id: messageId,
+					customerJid,
+					content,
+					personalizedContent,
+					status: 'sent',
+					sentAt: Date.now(),
+					deliveredAt: null,
+					readAt: null,
+				}
+
+		this.records.set(messageId, record)
 
 		// Terapkan update yang telanjah nyantol sebelum record ini terdaftar,
 		// lalu buang dari buffer supaya tidak ter-apply dua kali.
