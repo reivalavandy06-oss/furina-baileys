@@ -518,7 +518,11 @@ export class CRMBroadcastManager {
 	): Promise<SendToChannelResult> {
 		const postVerifyTimeout = options.postVerifyTimeoutMs ?? 5000
 
-		let channelJid = jidOrLink
+		// Raw JID dan raw channel ID harus dinormalkan sebelum dipakai, kalau
+		// tidak "123456" diteruskan apa adanya ke sendMessage lalu gagal. Jalur
+		// link tidak berubah: resolveChannelFromLink() sudah menormalkan hasilnya
+		// dan nilai itu yang dipakai.
+		let channelJid = normalizeChannelJid(jidOrLink)
 		if (jidOrLink.includes('whatsapp.com/channel/')) {
 			const resolved = await resolveChannelFromLink(this.sock, jidOrLink)
 			if (!resolved) {
