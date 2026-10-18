@@ -201,7 +201,6 @@ export class CRMBroadcastManager {
 			await sleep(delay)
 
 			const content = personalizeTemplate(template, customer, options.extra)
-			this.health.reportContent(content)
 
 			if (options.dryRun) {
 				// Dry run tidak pernah mengonsumsi budget (behavior existing),
@@ -210,6 +209,10 @@ export class CRMBroadcastManager {
 				this.tracker.track(`dry_${Date.now()}_${customer.jid}`, customer.jid, template, content)
 				continue
 			}
+			// Hanya pengiriman nyata yang boleh membebani identical-message guard.
+			// Kalau dry run ikut menghitung, beberapa kali simulasi bisa memicu
+			// guard dan menjatuhkan campaign yang sebenarnya belum jalan.
+			this.health.reportContent(content)
 			const sent = await this.sendWithRetry(customer, template, content)
 			if (!sent) {
 				// Attempt yang benar-benar dilakukan tapi gagal juga tidak
@@ -472,13 +475,17 @@ export class CRMBroadcastManager {
 			await sleep(gaussianDelay(minDelay, maxDelay))
 
 			const content = parseSpintax(template)
-			this.health.reportContent(content)
 
 			if (options.dryRun) {
 				console.log('[GROUP DRY RUN] would send to', groupJid)
 				sentCount++
 				continue
 			}
+
+			// Hanya pengiriman nyata yang boleh membebani identical-message guard.
+			// Kalau dry run ikut menghitung, beberapa kali simulasi bisa memicu
+			// guard dan menjatuhkan campaign yang sebenarnya belum jalan.
+			this.health.reportContent(content)
 
 			try {
 				await this.sock.sendMessage(groupJid, { text: content })
