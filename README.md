@@ -4,87 +4,205 @@
 
 # 💍 FURINA-BAILEYS
 
-WhatsApp Web API library dengan **stabilitas koneksi**, **kelengkapan button interaktif**, **CRM automation**, **broadcast anti-ban**, dan **message detection 96+ tipe**.
+Baileys versi Furina untuk membuat bot WhatsApp dengan lebih banyak fitur, lebih stabil, dan mudah dikustomisasi.
 
-Built on top of [WhiskeySockets/Baileys](https://github.com/WhiskeySockets/Baileys).
-
-`v1.0.6-furina` · TypeScript · Dual CJS/ESM · 🎬 [Demo Video](Media/furina-demo.mp4)
+Fork dari [WhiskeySockets/Baileys](https://github.com/WhiskeySockets/Baileys) dengan lapisan produksi: stabilitas koneksi, broadcast CRM anti-ban, tracking delivery, dan button interaktif.
 
 [![npm version](https://img.shields.io/npm/v/@vanzzz/furina-baileys.svg)](https://www.npmjs.com/package/@vanzzz/furina-baileys)
-[![License](https://img.shields.io/npm/l/@vanzzz/furina-baileys.svg)](LICENSE)
+[![License](https://img.shields.io/npm/l/@vanzzz/furina-baileys.svg)](https://github.com/reivalavandy06-oss/furina-baileys/blob/master/LICENSE)
+[![TypeScript](https://img.shields.io/badge/typescript-5.9-blue.svg)](https://www.typescriptlang.org/)
+[![Dual CJS/ESM](https://img.shields.io/badge/module-dual%20CJS%2FESM-brightgreen.svg)](package.json)
+
+`v1.1.0-furina` · Node.js >= 20 · 🎬 [Demo Video](Media/furina-demo.mp4)
 
 > [!CAUTION]
-> Baileys 7.0.0 introduced breaking changes. Check the [migration guide](https://whiskey.so/migrate-latest) before upgrading.
+> Baileys 7.0.0 memperkenalkan breaking changes. Baca [migration guide upstream](https://whiskey.so/migrate-latest) sebelum naik versi.
 
 </div>
 
 ---
 
-## 📋 Table of Contents
+## ✨ Fitur Utama
 
-- [✨ What Makes This Different](#-what-makes-this-different)
-- [📦 Installation](#-installation)
-- [🚀 Quick Start](#-quick-start)
-- [🔗 Connection & Pairing](#-connection--pairing)
-- [🛡️ Stability Layer](#️-stability-layer)
-- [🗂️ CRM System](#️-crm-system)
-- [📨 Broadcast Automation](#-broadcast-automation)
-- [🔍 Message Detection](#-message-detection)
-- [🛰️ Anti-BAN Protection](#️-anti-ban-protection)
-- [🆔 Furina Resolver](#-furina-resolver)
-- [🔘 Button Interaktif](#-button-interaktif)
-- [🎠 Carousel](#-carousel)
-- [🔨 MessageBuilder](#-messagebuilder)
-- [📊 Button Tracker](#-button-tracker)
-- [⚠️ Region & Asset-Gated Buttons](#️-region--asset-gated-buttons)
-- [🏪 Business Account Notes](#-business-account-notes)
-- [📚 API Reference](#-api-reference)
-- [🐛 Troubleshooting](#-troubleshooting)
-- [⚠️ Known Limitations](#️-known-limitations)
-- [📄 License](#-license)
+**Inti bot**
 
----
+- **Bot WhatsApp berbasis Baileys** — socket Noise/protobuf langsung, tanpa browser dan tanpa Selenium
+- **Multi-device support** — device suffix, agent suffix, dan LID/PN duality ditangani lewat helper JID
+- **Message detection 97 tipe** — termasuk view-once, reaction, dan interactive response
+- **Button & carousel** — 17 tipe button native, plus `MessageBuilder` fluent untuk compose pesan kompleks
 
-## ✨ What Makes This Different
+**Anti-ban**
 
-Most WhatsApp libraries give you raw socket access and leave the rest to you. Furina-Baileys adds production features that take weeks to build:
+- **Rate limiter per menit dan per jam** — `RateLimiter`, rolling window, akurasi lintas panggilan paralel
+- **Quarantine 403 persisten** — grup/kontak yang menolak 403 dicatat ke disk, bukan hanya di memori
+- **Delivery tracking** — status `messages.update` dengan buffer untuk update yang datang sebelum record terdaftar
+- **Health guard** — risk score, auto-pause saat risiko tinggi, dan latch per jendela konten
+- **Timing manusia** — `jitter`, `waitForSendWindow`, `humanSend`, plus profil `ori` dan `business`
 
-- **🛰️ Stability layer** — Monitor koneksi + stats (`sock.stability.getStats()`), exponential backoff calculator, stealth mode buat reconnect delay. **Catatan:** library nggak auto-reconnect — user tetap panggil `makeWASocket` ulang berdasarkan stats
-- **🔘 Button set terlengkap** — 17 tipe native + 4 modifier message-level, verified on-device
-- **🗂️ CRM system** — Track customers, conversations, activity, analytics
-- **📨 Broadcast automation** — Personal/group/channel dengan anti-ban delays (Gaussian, rate cap)
-- **🔍 Message detection** — Recognize 96+ message types termasuk view-once dan reactions
-- **🛡️ Anti-BAN protection** — Health monitor, auto-pause, stealth composing
-- **🆔 Custom pairing code** — `requestPairingCode(phone, customCode)` tanpa error conflict ID
-- **🌐 Custom browser identity** — `Browsers.ubuntu/macOS/baileys/windows/android/appropriate`
-- **🔨 MessageBuilder** — Fluent builder buat compose pesan kompleks. Dual-path: `sendMessage` untuk simple, `relayMessage` + `additionalNodes` untuk button/carousel. Auto-inject node `bot` di private chat
-- **🆔 Identity resolver** — LID mapping bidirectional, USync queries, link utils (`wa.me` generator + parser), bulk resolve, legacy helpers
+**Produksi**
 
-You still get full Baileys API access. This just handles the boring stuff so you can focus on your bot logic.
+- **Stabilizer koneksi** — `StabilityManager` dengan statistik, backoff, dan mode stealth
+- **Broadcast CRM** — segmentasi customer, template spintax, dan kanal newsletter
+- **Retry & backoff** — percobaan ulang dengan klasifikasi error 403/408/440/411
+- **Identity resolver** — mapping LID ↔ PN dua arah, query USync, dan util link `wa.me`
+
+> Setiap listener punya jalur pelepasan (`dispose()`) dan setiap buffer punya batas, jadi uptime panjang tidak menyebabkan buildup.
 
 ---
 
-## 📦 Installation
+## 📦 Instalasi
 
 ```bash
 npm install @vanzzz/furina-baileys
 ```
 
-### Requirements
+atau
 
-- Node.js >= 18.0.0
-- TypeScript >= 5.0.0 (optional, library sudah compiled)
+```bash
+yarn add @vanzzz/furina-baileys
+```
 
-### Verify Installation
+atau
+
+```bash
+pnpm add @vanzzz/furina-baileys
+```
+
+**Kebutuhan:** Node.js >= 20 (library memblokir versi lebih lama saat install). TypeScript >= 5 opsional — library sudah dikompilasi.
+
+**Verifikasi:**
 
 ```javascript
 const baileys = require('@vanzzz/furina-baileys')
-console.log('Version:', baileys.DEFAULT_CONNECTION_CONFIG?.version)
-console.log('Browsers:', Object.keys(baileys.Browsers))
+console.log('makeWASocket:', typeof baileys.makeWASocket)
+console.log('Browsers:', Object.keys(baileys.Browsers).join(', '))
 ```
 
 ---
 
+## 🚀 Contoh Penggunaan
+
+```javascript
+const { makeWASocket, useMultiFileAuthState } = require('@vanzzz/furina-baileys')
+
+async function start() {
+  // state auth disimpan di folder ./session
+  const { state, saveCreds } = await useMultiFileAuthState('session')
+  const sock = makeWASocket({ auth: state })
+
+  // simpan credential setiap kali berubah
+  sock.ev.on('creds.update', saveCreds)
+
+  sock.ev.on('connection.update', (update) => {
+    const { connection, lastDisconnect } = update
+    if (connection === 'close') {
+      console.log('terputus:', lastDisconnect?.error)
+    } else if (connection === 'open') {
+      console.log('terhubung sebagai', sock.user?.name)
+    }
+  })
+
+  sock.ev.on('messages.upsert', async ({ messages }) => {
+    for (const m of messages) {
+      if (m.message?.conversation) {
+        console.log(`${m.key.remoteJid}: ${m.message.conversation}`)
+      }
+    }
+  })
+
+  // kirim pesan
+  await sock.sendMessage('628xxxxxxxxxx@s.whatsapp.net', { text: 'Halo dari Furina!' })
+}
+
+start()
+```
+
+ESM dengan import named berjalan sama:
+
+```javascript
+import makeWASocket, { useMultiFileAuthState } from '@vanzzz/furina-baileys'
+```
+
+---
+
+## 🔄 Migrasi dari `furina-baileys`
+
+Paket ini menggantikan paket unscoped `furina-baileys`.
+
+**1. Install paket baru:**
+
+```bash
+npm install @vanzzz/furina-baileys
+```
+
+**2. Ganti nama import:**
+
+```diff
+- const { makeWASocket } = require('furina-baileys')
++ const { makeWASocket } = require('@vanzzz/furina-baileys')
+```
+
+```diff
+- import makeWASocket from 'furina-baileys'
++ import makeWASocket from '@vanzzz/furina-baileys'
+```
+
+**3. Tidak ada perubahan API besar.** Semua fungsi, opsi, dan event tetap sama. Yang berubah hanya nama paket.
+
+Kalau package `furina-baileys` lama masih terpasang di project yang sama, tidak masalah — keduanya bisa hidup berdampingan.
+
+---
+
+## 📚 Dokumentasi
+
+Ringkasan di atas adalah pintu masuk. Referensi lengkap ada di bawah:
+
+| Bagian | Isi |
+|---|---|
+[Quick Start](#-quick-start) | Koneksi dasar dan handling event |
+[Stability Layer](#️-stability-layer) | Pemantau koneksi, backoff, stealth mode |
+[CRM System](#️-crm-system) | Customer, percakapan, aktivitas, analitik |
+[Broadcast Automation](#-broadcast-automation) | Broadcast personal, grup, dan kanal |
+[Message Detection](#-message-detection) | Kenali 97 tipe pesan |
+[Anti-BAN Protection](#️-anti-ban-protection) | Rate limiter, timing, health monitor |
+[Furina Resolver](#-furina-resolver) | Mapping LID ↔ PN, query USync, link utils |
+[Button Interaktif](#-button-interaktif) | 17 tipe button native |
+[Carousel](#-carousel) | Carousel dan multi-card |
+[MessageBuilder](#-messagebuilder) | Fluent builder untuk pesan kompleks |
+[Button Tracker](#-button-tracker) | Menangkap tap button dan carousel |
+[API Reference](#-api-reference) | Daftar API publik |
+
+---
+
+## 📄 Lisensi
+
+**Apache License 2.0** dengan kewajiban atribusi.
+
+**Hak cipta:**
+- WhiskeySockets/Baileys (2025) — proyek asli
+- Avandy (2026) — modifikasi dan fitur tambahan
+
+Anda wajib mencantumkan kredit saat memakai, memodifikasi, atau mendistribusikan library ini:
+
+```markdown
+Built with [Furina-Baileys](https://github.com/reivalavandy06-oss/furina-baileys)
+Based on [WhiskeySockets/Baileys](https://github.com/WhiskeySockets/Baileys)
+Modifications by Avandy
+```
+
+> Fork wajib mempertahankan atribusi. Menghapus kredit tanpa izin dapat berakibat DMCA takedown notice.
+>
+> Library ini untuk automation yang legitimate. Penyalahgunaan (spam, scam, blast tanpa izin) adalah tanggung jawab pengguna, bukan developer.
+
+---
+
+<div align="center">
+
+**Made with 💙 by the Furina-Baileys team**
+
+[Report Bug](https://github.com/reivalavandy06-oss/furina-baileys/issues) · [Request Feature](https://github.com/reivalavandy06-oss/furina-baileys/issues)
+
+</div>
 ## 🚀 Quick Start
 
 ### Basic Connection (CommonJS)
