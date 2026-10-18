@@ -1,0 +1,38 @@
+name: Publish to npm
+
+# Publish manual lewat Trusted Publishing (OIDC), jadi tidak butuh NPM_TOKEN.
+# Credential diambil dari GitHub Actions identity token, bukan secret.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          registry-url: 'https://registry.npmjs.org'
+
+      # npm bawaan ubuntu-latest belum mendukung OIDC Trusted Publishing.
+      # Pola yang sama dipakai workflow publish-release.yml di repo ini.
+      - name: Upgrade npm
+        run: npm install -g npm@11
+
+      # Pakai runtime Yarn yang sudah di-commit, jadi tidak bergantung Corepack.
+      - name: Install dependencies
+        run: node .yarn/releases/yarn-4.9.2.cjs install --immutable
+
+      - name: Build
+        run: node .yarn/releases/yarn-4.9.2.cjs run build
+
+      - name: Publish
+        run: npm publish --access public

@@ -1141,7 +1141,7 @@ await new MessageBuilder()
     title: 'Furina Store',
     body: 'Promo hari ini',
     thumbnail: 'https://example.com/thumb.png',
-    sourceUrl: 'https://github.com/Avandy/furina-baileys',
+    sourceUrl: 'https://github.com/reivalavandy06-oss/furina-baileys',
   })
   .send(sock, jid)
 ```
@@ -1509,11 +1509,11 @@ Licensed under **Apache License 2.0** with attribution requirements.
 If you use, modify, or distribute this library, you must credit:
 - Original creators: WhiskeySockets
 - Modifications: Avandy
-- Repository: https://github.com/Avandy/furina-baileys
+- Repository: https://github.com/reivalavandy06-oss/furina-baileys
 
 **How to credit:**
 ```markdown
-Built with [Furina-Baileys](https://github.com/Avandy/furina-baileys)
+Built with [Furina-Baileys](https://github.com/reivalavandy06-oss/furina-baileys)
 Based on [WhiskeySockets/Baileys](https://github.com/WhiskeySockets/Baileys)
 Modifications by Avandy
 ```
@@ -1535,11 +1535,11 @@ Dilisensikan di bawah **Apache License 2.0** dengan syarat atribusi.
 Jika Anda menggunakan, memodifikasi, atau mendistribusikan library ini, Anda wajib memberikan kredit kepada:
 - Pembuat asli: WhiskeySockets
 - Modifikasi: Avandy
-- Repository: https://github.com/Avandy/furina-baileys
+- Repository: https://github.com/reivalavandy06-oss/furina-baileys
 
 **Cara memberikan kredit:**
 ```markdown
-Dibuat dengan [Furina-Baileys](https://github.com/Avandy/furina-baileys)
+Dibuat dengan [Furina-Baileys](https://github.com/reivalavandy06-oss/furina-baileys)
 Berdasarkan [WhiskeySockets/Baileys](https://github.com/WhiskeySockets/Baileys)
 Modifikasi oleh Avandy
 ```
@@ -1562,6 +1562,6 @@ Modifikasi oleh Avandy
 
 **Made with 💙 by the Furina-Baileys team**
 
-[Report Bug](https://github.com/Avandy/furina-baileys/issues) · [Request Feature](https://github.com/Avandy/furina-baileys/issues)
+[Report Bug](https://github.com/reivalavandy06-oss/furina-baileys/issues) · [Request Feature](https://github.com/reivalavandy06-oss/furina-baileys/issues)
 
 </div>

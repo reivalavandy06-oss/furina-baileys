@@ -9,13 +9,13 @@
     "furina",
     "baileys-mod"
   ],
-  "homepage": "https://github.com/Avandy/furina-baileys#readme",
+  "homepage": "https://github.com/reivalavandy06-oss/furina-baileys#readme",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/Avandy/furina-baileys.git"
+    "url": "git+https://github.com/reivalavandy06-oss/furina-baileys.git"
   },
   "bugs": {
-    "url": "https://github.com/Avandy/furina-baileys/issues"
+    "url": "https://github.com/reivalavandy06-oss/furina-baileys/issues"
   },
   "license": "Apache-2.0",
   "author": "Avandy",
