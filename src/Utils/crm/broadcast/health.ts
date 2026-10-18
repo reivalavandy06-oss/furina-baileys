@@ -23,14 +23,26 @@ const LEVEL_MEDIUM = 40
 const LEVEL_HIGH = 70
 const LEVEL_CRITICAL = 90
 
+// Batas event yang disimpan. getReport() hanya menampilkan 10 terakhir, jadi
+// menyimpan jauh lebih dari itu hanya menambah konsumsi memori tanpa
+// menambah informasi. Buang yang terlama (FIFO).
+const MAX_RISK_EVENTS = 200
+
 export class CRMHealthMonitor {
 	private score = 0
 	private events: RiskEvent[] = []
 	private paused = false
 	// Flag khusus 401: stop permanen, cuma operator yang boleh putusin
 	private permanentStop = false
-	// Window buat identical-message guard
-	private contentWindow: { content: string; count: number; firstAt: number }[] = []
+	// Window buat identical-message guard.
+	// latched: guard sudah pernah menambah risk untuk window ini, jadi pesan
+	// identik berikutnya tidak boleh menambah risk lagi.
+	private contentWindow: {
+		content: string
+		count: number
+		firstAt: number
+		latched: boolean
+	}[] = []
 	private maxIdentical: number
 	private identicalWindowMs: number
 
@@ -46,12 +58,21 @@ export class CRMHealthMonitor {
 
 	addRisk(points: number, reason: string): void {
 		this.score = Math.min(100, this.score + points)
-		this.events.push({ points, reason, timestamp: Date.now() })
+		this.pushEvent({ points, reason, timestamp: Date.now() })
 
 		// AUTO-PAUSE: kalau level udah high/critical, stop kirim dulu
 		const level = this.getLevel()
 		if (level === 'high' || level === 'critical') {
 			this.paused = true
+		}
+	}
+
+	// Semua penulisan event lewat sini supaya batasnya applies konsisten,
+	// termasuk event 401 yang sebelumnya ditulis langsung ke array.
+	private pushEvent(event: RiskEvent): void {
+		this.events.push(event)
+		if (this.events.length > MAX_RISK_EVENTS) {
+			this.events.splice(0, this.events.length - MAX_RISK_EVENTS)
 		}
 	}
 
@@ -112,14 +133,23 @@ export class CRMHealthMonitor {
 
 			// Trigger guard kalau udah kebanyakan pesan identik
 			if (entry.count >= this.maxIdentical) {
-				this.addRisk(
-					25,
-					`identical-message guard: ${entry.count} pesan identik dalam 1 jam`
-				)
+				// Latch per window: satu window hanya menambah risk sekali.
+				// Tanpa latch, setiap pesan identik berikutnya menambah 25 poin
+				// lagi, jadi risk terakumulasi jauh melampaui yang dimaksud.
+				// Latch menempel ke entry window ini; kalau jendela berikutnya
+				// ter-filter, entry ikut hilang dan window baru otomatis ter-arm
+				// lagi, jadi guard tidak mati permanen.
+				if (!entry.latched) {
+					entry.latched = true
+					this.addRisk(
+						25,
+						`identical-message guard: ${entry.count} pesan identik dalam 1 jam`
+					)
+				}
 				return true
 			}
 		} else {
-			this.contentWindow.push({ content: normalized, count: 1, firstAt: now })
+			this.contentWindow.push({ content: normalized, count: 1, firstAt: now, latched: false })
 		}
 
 		return false
@@ -146,7 +176,7 @@ export class CRMHealthMonitor {
 			this.permanentStop = true
 			this.paused = true
 			this.score = 100
-			this.events.push({
+			this.pushEvent({
 				points: 100,
 				reason: 'disconnect 401 (loggedOut/ban) — STOP permanen, alert operator',
 				timestamp: Date.now(),
@@ -157,6 +187,20 @@ export class CRMHealthMonitor {
 		} else {
 			this.addRisk(10, `disconnect (${statusCode})`)
 		}
+	}
+
+	// ═══════════════════════════════════════════════════════════════
+	// LIFECYCLE
+	// ═══════════════════════════════════════════════════════════════
+
+	// Buang seluruh state: events, window identik beserta latch-nya, dan flag
+	// pause. Dipanggil saat monitor tidak dipakai lagi.
+	dispose(): void {
+		this.events = []
+		this.contentWindow = []
+		this.score = 0
+		this.paused = false
+		this.permanentStop = false
 	}
 
 	// ═══════════════════════════════════════════════════════════════
