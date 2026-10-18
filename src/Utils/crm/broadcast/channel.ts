@@ -3,6 +3,7 @@
 // #2555 (fetchMessages broken → verify pakai echo upsert), #1903 (no list API)
 
 import type { CRMChannelRole } from '../types'
+import { areJidsSameUser } from '../../../WABinary'
 
 export interface CRMChannelInfo {
 	jid: string
@@ -55,7 +56,10 @@ export async function detectChannelRole(
 		}
 
 		const botLid = sock.user?.lid ?? sock.user?.id ?? ''
-		if (meta?.owner && meta.owner === botLid) return 'OWNER'
+		// areJidsSameUser, bukan === : JID bisa datang dalam bentuk berbeda
+		// (device suffix, atau user_ untuk user), dan perbandingan string biasa
+		// akan salah menyimpulkan bot ini bukan owner.
+		if (meta?.owner && areJidsSameUser(meta.owner, botLid)) return 'OWNER'
 
 		return 'SUBSCRIBER'
 	} catch (err) {
@@ -116,6 +120,14 @@ export function verifyChannelPostViaEcho(
 	content: string,
 	timeoutMs: number = 15000
 ): Promise<boolean> {
+	// Guard content kosong: ''.includes('') selalu true, jadi tanpa guard ini
+	// pesan upsert pertama apa pun di channel itu akan dianggap sebagai echo dan
+	// post dianggap terverifikasi padahal belum tentu terkirim. Lebih baik
+	// melapor gagal daripada melaporkan sukses palsu.
+	if (typeof content !== 'string' || content.trim().length === 0) {
+		return Promise.resolve(false)
+	}
+
 	return new Promise((resolve) => {
 		let resolved = false
 		const jid = normalizeChannelJid(channelJid)
