@@ -13,7 +13,7 @@ Fork dari [WhiskeySockets/Baileys](https://github.com/WhiskeySockets/Baileys) de
 [![TypeScript](https://img.shields.io/badge/typescript-5.9-blue.svg)](https://www.typescriptlang.org/)
 [![Dual CJS/ESM](https://img.shields.io/badge/module-dual%20CJS%2FESM-brightgreen.svg)](package.json)
 
-`v1.1.0-furina` · Node.js >= 20 · 🎬 [Demo Video](Media/furina-demo.mp4)
+`v1.1.1-furina` · Node.js >= 20 · 🎬 [Demo Video](Media/furina-demo.mp4)
 
 > [!CAUTION]
 > Baileys 7.0.0 memperkenalkan breaking changes. Baca [migration guide upstream](https://whiskey.so/migrate-latest) sebelum naik versi.

@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.1.1-furina
+
+- **Fix broken 1.1.0-furina**: paket terbit dengan `"type": "commonjs"` di root package.json — padahal `lib/WAProto/index.js` (satu salinan yang dipakai bersama oleh tree CJS dan ESM) berisi sintaks ESM. Root `type: "commonjs"` mematikan module-syntax detection Node sehingga `require()` dan `import` dari konsumer sama-sama gagal. Field tersebut dihapus, mengembalikan perilaku paket 1.0.5-furina yang terbukti jalan
+- **Fix CJS entry**: `lt-hash` dikembalikan ke implementasi pure-JS (algoritma upstream: pointwise u16 add/sub + hkdf). `whatsapp-rust-bridge` ESM-only (exports map tanpa kondisi `require`) sehingga tree CJS gagal dimuat; sekarang tidak ada lagi import rust-bridge di jalur entry
+- **Isi sama dengan 1.1.0-furina**: 24 perbaikan audit — kanonikalisasi JID lintas flow CRM, listener lifecycle (`dispose()`), memory bounded (conversation history, button tracker, pending updates, risk events), rolling hourly limiter, quarantine 403 persist, per-minute quota accounting, delivery tracker buffering, monotonic delivery status, owner check `areJidsSameUser`, guard content kosong, normalisasi channel JID, dry-run tanpa membebani health guard, latch per content window
+- **Toolchain**: Yarn 4.9.2 runtime di-commit (`yarnPath`), `yarn.lock` reproducible, publish via GitHub Actions + npm Trusted Publishing (`publish.yml`, `workflow_dispatch`), rename ke `@vanzzz/furina-baileys`, README ringkas untuk npm + dokumentasi panjang di `docs/`
+- 1.1.0-furina di-deprecate: jangan dipakai, gunakan 1.1.1-furina
+
 ## 1.0.6-furina
 
 - **MessageBuilder rewrite**: full replace dengan quoted-inject di jalur relay, carousel pakai `buildCarouselNodes(jid)`, error prefix `[furina-builder]`
