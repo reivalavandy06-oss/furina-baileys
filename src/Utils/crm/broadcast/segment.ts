@@ -20,6 +20,14 @@ export function filterSegment(
 	// ke orang yang sama (spam + ban lebih cepat), jadi dedupe by JID kanonik.
 	const seen = new Set<string>()
 
+	// Pre-compute Set JID yang diminta — di luar callback supaya tidak
+	// O(n*m) kalau segment.jids besar. Normalisasi pakai jidNormalizedUser
+	// agar cocok dengan dedupe step 6.
+	// Catatan: jids === [] (explicit kosong) → Set kosong → tidak ada yang lolos
+	const requestedJids = segment.jids !== undefined
+		? new Set(segment.jids.map((j) => jidNormalizedUser(j) || j))
+		: null
+
 	return customers.filter((customer) => {
 		// SAFETY PALING PENTING: jangan pernah kirim ke yang opt-out/blocked
 		if (customer.status === 'blocked') {
@@ -55,7 +63,15 @@ export function filterSegment(
 			return false
 		}
 
-		// 6. Dedupe per orang, bukan per record. Dicatat setelah semua filter
+		// 6. JID whitelist (kalau diminta). AND dengan filter lain — bukan
+		// pengganti. Kalau segment.jids diisi DAN customer cocok filter lain,
+		// tetap harus ada di jids list supaya lolos.
+		if (requestedJids) {
+			const canonical = jidNormalizedUser(customer.jid) || customer.jid
+			if (!requestedJids.has(canonical)) return false
+		}
+
+		// 7. Dedupe per orang, bukan per record. Dicatat setelah semua filter
 		// lolos supaya customer yang ter-exclude tidak memakan slot di Set.
 		const canonical = jidNormalizedUser(customer.jid) || customer.jid
 		if (seen.has(canonical)) return false
@@ -84,7 +100,8 @@ export function validateSegment(
 		(segment.excludeTags && segment.excludeTags.length > 0) ||
 		segment.status !== undefined ||
 		segment.lastSeenWithinDays !== undefined ||
-		segment.customFilter !== undefined
+		segment.customFilter !== undefined ||
+		(segment.jids !== undefined && segment.jids.length > 0) // BARU
 
 	if (!hasAnyFilter) {
 		warnings.push(
