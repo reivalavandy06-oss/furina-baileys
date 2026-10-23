@@ -92,19 +92,25 @@ await crm.send(
   '{Halo|Hai|Selamat pagi} {nama}! Ada promo baru nih 📡'
 )
 
-// Broadcast ke specific customers
+// Broadcast ke customer tertentu via JID whitelist
 await crm.send(
   { jids: ['6281234567890@s.whatsapp.net', '6282345678901@s.whatsapp.net'] },
   'Halo {nama}, jangan lupa checkout ya!'
 )
 
-// Broadcast dengan custom delay
+// Broadcast ke segment status tertentu
 await crm.send(
-  { tags: ['active'] },
-  'Promo hari ini aja: diskon 50%!',
-  { delayMs: 5000 } // 5 detik antar message
+  { status: 'active' },
+  'Promo hari ini aja: diskon 50%!'
 )
 ```
+
+> **Catatan delay**
+>
+> Option `delayMs` di `send()` **belum diimplementasikan**. Delay antar
+> pesan dikontrol otomatis oleh anti-ban profile (`minDelayMs` /
+> `maxDelayMs` di config `CRMBroadcastManager`). Kalau butuh delay custom,
+> atur via config manager, bukan per-call.
 
 ### Group Broadcast
 
