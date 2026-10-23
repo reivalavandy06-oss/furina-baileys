@@ -219,6 +219,9 @@ export interface CRMBroadcastSegment {
 	lastSeenWithinDays?: number
 	excludeTags?: string[]
 	customFilter?: (customer: CRMCustomer) => boolean
+	/** Whitelist JID penerima. Kalau diisi, hanya customer yang JID-nya
+	 *  (setelah jidNormalizedUser) ada di list ini yang akan dikirimi. */
+	jids?: string[]
 }
 
 export interface CRMBroadcastOptions {
