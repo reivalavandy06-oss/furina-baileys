@@ -102,25 +102,4 @@ describe('USyncResolver.searchByUsername', () => {
 		expect(result?.lid).toBe('789@lid')
 		expect(result?.isBusiness).toBe(true)
 	})
-
-	test('detects business account when contact returns false (non-in type)', async () => {
-		const mockResult = {
-			list: [
-				{
-					id: '999@lid',
-					contact: false,
-					lid: '999@lid',
-					username: 'bizaccount',
-				},
-			],
-		}
-		const sock = makeMockSock(mockResult)
-		const resolver = new USyncResolver(sock)
-
-		const result = await resolver.searchByUsername('bizaccount')
-
-		expect(result).not.toBeNull()
-		expect(result?.lid).toBe('999@lid')
-		expect(result?.isBusiness).toBe(true)
-	})
 })

@@ -43,9 +43,9 @@ export class USyncResolver {
 			const idIsLid = typeof entry.id === 'string' && entry.id.endsWith('@lid')
 			const lidFromProtocol = (entry.lid as string) ?? null
 			
-			// Detect business: contact protocol returns true for regular contacts (type='in')
-			// Business accounts may return false or different type
-			const contactResult = entry.contact as boolean | undefined
+			// Business detection ONLY via bot profile protocol.
+			// contact protocol returns whether user has our bot's number saved (type='in'),
+			// NOT whether the user is a business account.
 			const botProfile = entry.bot as any
 			
 			return {
@@ -53,8 +53,8 @@ export class USyncResolver {
 				lid: idIsLid ? entry.id : lidFromProtocol,
 				pn: idIsLid ? null : (entry.id ?? null),
 				username: (entry.username as string) ?? cleanUsername,
-				// Business if bot profile exists OR contact is not a regular 'in' contact
-				isBusiness: botProfile ? true : (contactResult === false ? true : null),
+				// Business ONLY if bot profile exists in response
+				isBusiness: botProfile ? true : null,
 				pushname: null,
 				status: null,
 			}
