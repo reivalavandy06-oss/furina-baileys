@@ -1,14 +1,17 @@
 // USync Resolver - Advanced user information resolver using USync protocol
 // Handles username search, user info fetching, and advanced queries
 
+import { USyncQuery } from '../WAUSync/USyncQuery'
+import { USyncUser } from '../WAUSync/USyncUser'
+
 export interface UserInfo {
-	jid?: string
-	lid?: string
-	pn?: string
-	username?: string
-	pushname?: string
-	status?: string
-	isBusiness?: boolean
+	jid?: string | null
+	lid?: string | null
+	pn?: string | null
+	username?: string | null
+	pushname?: string | null
+	status?: string | null
+	isBusiness?: boolean | null
 }
 
 export class USyncResolver {
@@ -19,46 +22,36 @@ export class USyncResolver {
 	}
 
 	async searchByUsername(username: string): Promise<UserInfo | null> {
-		try {
-			// Use USync query with username protocol
-			const result = await this.sock.query({
-				tag: 'iq',
-				attrs: {
-					to: 's.whatsapp.net',
-					type: 'get',
-					xmlns: 'usync'
-				},
-				content: [
-					{
-						tag: 'usync',
-						attrs: {
-							sid: this.sock.generateMessageTag(),
-							mode: 'query',
-							last: 'true',
-							index: '0',
-							context: 'interactive'
-						},
-						content: [
-							{
-								tag: 'query',
-								attrs: {},
-								content: [
-									{
-										tag: 'username',
-										attrs: {},
-										content: username
-									}
-								]
-							}
-						]
-					}
-				]
-			})
+		if (!username || username.trim().length === 0) return null
+		const cleanUsername = username.trim().replace(/^@/, '')
 
-			// Parse result
-			const users = this.extractUsersFromUSync(result)
-			return users[0] ?? null
-		} catch (e) {
+		try {
+			const q = new USyncQuery()
+				.withMode('query')
+				.withContext('interactive')
+				.withUsernameProtocol()
+				.withContactProtocol()
+				.withLIDProtocol()
+			q.withUser(new USyncUser().withUsername(cleanUsername))
+
+			// this.sock.executeUSyncQuery is not in public TypeSocket type, cast to access
+			const res = await (this.sock as any).executeUSyncQuery(q)
+			const entry = res?.list?.[0]
+			if (!entry) return null
+
+const idIsLid = typeof entry.id === 'string' && entry.id.endsWith('@lid')
+			const lidFromProtocol = (entry.lid as string) ?? null
+			return {
+				jid: entry.id ?? null,
+				lid: idIsLid ? entry.id : lidFromProtocol,
+				pn: idIsLid ? null : (entry.id ?? null),
+				username: (entry.username as string) ?? cleanUsername,
+				isBusiness: null,
+				pushname: null,
+				status: null,
+			}
+		} catch (err) {
+			this.sock?.logger?.warn?.({ err, username: cleanUsername }, 'searchByUsername failed')
 			return null
 		}
 	}

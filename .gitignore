@@ -55,3 +55,8 @@ tests/
 # packageManager adalah yarn@4.9.2 (lihat package.json). Hanya yarn.lock
 # yang boleh di-commit. Dua lockfile = drift = "works on my machine".
 package-lock.json
+
+# opencode / local agent artifacts (never commit)
+.opencode/
+opencode.json
+config.json

@@ -13,6 +13,21 @@ import { getLIDResolver, type LIDResolver, type FurinaLIDMapping } from './lid-r
 import { getUSyncResolver, type USyncResolver, type UserInfo } from './usync-resolver'
 import { jidDecode, jidNormalizedUser } from '../WABinary'
 
+// Known WhatsApp JID servers - used to validate JID branch
+const WHATSAPP_SERVERS = new Set([
+	's.whatsapp.net',
+	'lid',
+	'g.us',
+	'broadcast',
+	'newsletter',
+	'c.us',
+	'call',
+	'bot',
+	'hosted',
+	'hosted.lid',
+	'status',
+])
+
 // Re-export types biar user nggak perlu import dari 2 file berbeda
 export type { FurinaLIDMapping, UserInfo }
 
@@ -99,12 +114,25 @@ export function createFurinaResolver(sock: any): FurinaResolver {
 			const t = target.trim()
 			if (!t) return null
 
+			// 0. Username (@user) — DICEK SEBELUM JID branch, karena '@username'
+			// juga mengandung '@' tapi bukan JID valid.
+			if (t.startsWith('@')) {
+				const username = t.slice(1)
+				if (!username || username.length === 0) return null
+				const userInfo = await usync.searchByUsername(username)
+				return userInfo?.lid ?? userInfo?.pn ?? userInfo?.jid ?? null
+			}
+
 			// 1. Sudah JID (ada @) — normalisasi device/agent suffix supaya
 			// output konsisten dengan CRM key & recipient lain. Server kosong
 			// ("user@") ditolak: JID cacat lebih baik kena null daripada
 			// ikut terus ke seluruh flow CRM.
+			// Jika server bukan domain WhatsApp dikenal → return null (bukan fall-through).
 			if (t.includes('@')) {
-				if (!jidDecode(t)?.server) return null
+				const decoded = jidDecode(t)
+				if (!decoded?.server || !WHATSAPP_SERVERS.has(decoded.server)) {
+					return null
+				}
 				return jidNormalizedUser(t)
 			}
 

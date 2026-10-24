@@ -1,5 +1,6 @@
 import { createFurinaResolver } from '../../Utils/furina-resolver'
 import { normalizeJid } from '../../Utils/lid-resolver'
+import { jest } from '@jest/globals'
 
 const DEVICE_12 = '628123456789:12@s.whatsapp.net'
 const DEVICE_34 = '628123456789:34@s.whatsapp.net'
@@ -7,10 +8,17 @@ const CANONICAL = '628123456789@s.whatsapp.net'
 
 // Resolver di-cache per socket, jadi tiap test pakai sock baru agar state
 // antar test tidak saling bocor.
-const makeSock = () => ({
-	ev: { on: () => {} },
-	signalRepository: undefined
-})
+const makeSock = (overrides: any = {}) => {
+	const executeUSyncQuery = jest.fn() as any
+	return {
+		ev: { on: () => {} },
+		signalRepository: undefined,
+		executeUSyncQuery,
+		logger: { warn: jest.fn() },
+		generateMessageTag: () => 'test-tag',
+		...overrides,
+	}
+}
 
 describe('furina-resolver identity normalization', () => {
 	it('resolves two device JIDs of the same user to one identifier', async () => {
@@ -62,6 +70,36 @@ describe('furina-resolver identity normalization', () => {
 		const resolver = createFurinaResolver(makeSock())
 
 		expect(await resolver.toWhatsAppLink('1234567890-1234@g.us')).toBeNull()
+	})
+
+	it('resolveTarget("@test") routes via usync, returns canonical JID', async () => {
+		const mockUSyncResult = {
+			list: [
+				{
+					id: '123@lid',
+					contact: true,
+					lid: '123@lid',
+					username: 'test',
+				},
+			],
+		}
+		const sock = makeSock({ executeUSyncQuery: (jest.fn() as any).mockResolvedValue(mockUSyncResult) })
+		const resolver = createFurinaResolver(sock)
+
+		const result = await resolver.resolveTarget('@test')
+
+		expect(result).toBe('123@lid')
+		expect(result).not.toBe('@test')
+	})
+
+	it('resolveTarget("user@example.com") returns null (invalid JID, not @username)', async () => {
+		const mockUSyncResult = { list: [] }
+		const sock = makeSock({ executeUSyncQuery: (jest.fn() as any).mockResolvedValue(mockUSyncResult) })
+		const resolver = createFurinaResolver(sock)
+
+		const result = await resolver.resolveTarget('user@example.com')
+
+		expect(result).toBeNull()
 	})
 })
 
