@@ -21,7 +21,7 @@ export class USyncResolver {
 		this.sock = sock
 	}
 
-async searchByUsername(username: string): Promise<UserInfo | null> {
+	async searchByUsername(username: string): Promise<UserInfo | null> {
 		if (!username || username.trim().length === 0) return null
 		const cleanUsername = username.trim().replace(/^@/, '')
 
