@@ -21,7 +21,7 @@ export class USyncResolver {
 		this.sock = sock
 	}
 
-	async searchByUsername(username: string): Promise<UserInfo | null> {
+async searchByUsername(username: string): Promise<UserInfo | null> {
 		if (!username || username.trim().length === 0) return null
 		const cleanUsername = username.trim().replace(/^@/, '')
 
@@ -32,6 +32,7 @@ export class USyncResolver {
 				.withUsernameProtocol()
 				.withContactProtocol()
 				.withLIDProtocol()
+				.withBotProfileProtocol()
 			q.withUser(new USyncUser().withUsername(cleanUsername))
 
 			// this.sock.executeUSyncQuery is not in public TypeSocket type, cast to access
@@ -39,14 +40,21 @@ export class USyncResolver {
 			const entry = res?.list?.[0]
 			if (!entry) return null
 
-const idIsLid = typeof entry.id === 'string' && entry.id.endsWith('@lid')
+			const idIsLid = typeof entry.id === 'string' && entry.id.endsWith('@lid')
 			const lidFromProtocol = (entry.lid as string) ?? null
+			
+			// Detect business: contact protocol returns true for regular contacts (type='in')
+			// Business accounts may return false or different type
+			const contactResult = entry.contact as boolean | undefined
+			const botProfile = entry.bot as any
+			
 			return {
 				jid: entry.id ?? null,
 				lid: idIsLid ? entry.id : lidFromProtocol,
 				pn: idIsLid ? null : (entry.id ?? null),
 				username: (entry.username as string) ?? cleanUsername,
-				isBusiness: null,
+				// Business if bot profile exists OR contact is not a regular 'in' contact
+				isBusiness: botProfile ? true : (contactResult === false ? true : null),
 				pushname: null,
 				status: null,
 			}
