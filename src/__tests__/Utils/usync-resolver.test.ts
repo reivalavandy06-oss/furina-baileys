@@ -35,7 +35,8 @@ describe('USyncResolver.searchByUsername', () => {
 		expect(result).not.toBeNull()
 		expect(result?.jid).toBe('123@lid')
 		expect(result?.lid).toBe('123@lid')
-		expect(result?.pn).toBe('123@lid') // contact=true, id is used as pn
+		expect(result?.pn).toBeNull()
+		expect(result?.isBusiness).toBeNull()
 		expect(result?.username).toBe('testuser')
 		expect(sock.executeUSyncQuery).toHaveBeenCalled()
 	})

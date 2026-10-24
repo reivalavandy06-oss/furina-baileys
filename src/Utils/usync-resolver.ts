@@ -39,12 +39,14 @@ export class USyncResolver {
 			const entry = res?.list?.[0]
 			if (!entry) return null
 
+const idIsLid = typeof entry.id === 'string' && entry.id.endsWith('@lid')
+			const lidFromProtocol = (entry.lid as string) ?? null
 			return {
-				jid: entry.id,
-				lid: (entry.lid as string) ?? null,
-				pn: (entry.contact as boolean) ? entry.id : null, // contact=true means id is a valid PN; if id is LID, pn stays null
+				jid: entry.id ?? null,
+				lid: idIsLid ? entry.id : lidFromProtocol,
+				pn: idIsLid ? null : (entry.id ?? null),
 				username: (entry.username as string) ?? cleanUsername,
-				isBusiness: (entry.contact as boolean) ?? false,
+				isBusiness: null,
 				pushname: null,
 				status: null,
 			}

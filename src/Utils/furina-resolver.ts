@@ -127,14 +127,13 @@ export function createFurinaResolver(sock: any): FurinaResolver {
 			// output konsisten dengan CRM key & recipient lain. Server kosong
 			// ("user@") ditolak: JID cacat lebih baik kena null daripada
 			// ikut terus ke seluruh flow CRM.
-			// Jika server bukan domain WhatsApp dikenal → fall through ke branch username/nomor.
+			// Jika server bukan domain WhatsApp dikenal → return null (bukan fall-through).
 			if (t.includes('@')) {
 				const decoded = jidDecode(t)
 				if (!decoded?.server || !WHATSAPP_SERVERS.has(decoded.server)) {
-					// Bukan JID WhatsApp valid, biarkan branch berikutnya handle
-				} else {
-					return jidNormalizedUser(t)
+					return null
 				}
+				return jidNormalizedUser(t)
 			}
 
 			// 2. Nomor telepon (8-15 digit, optional +)
