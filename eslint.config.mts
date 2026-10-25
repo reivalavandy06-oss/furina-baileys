@@ -1,4 +1,4 @@
-import { defineConfig, globalIgnores } from "eslint/config";
+import { defineConfig } from "eslint/config";
 import prettier from "eslint-plugin-prettier";
 import prettierConfig from "eslint-config-prettier";
 import path from "node:path";
@@ -18,33 +18,48 @@ const compat = new FlatCompat({
 });
 
 export default defineConfig([
-  globalIgnores([
-    "src/Tests/*",
-    "**/lib",
-    "**/coverage",
-    "**/*.lock",
-    "**/.eslintrc.json",
-    "src/WABinary/index.ts",
-    "**/WAProto",
-    "Example/Example.ts",
-    "**/docs",
-    "**/proto-extract",
-    "**/*.d.ts",
-  ]),
+  // Global ignores — paling atas, supaya ESLint tidak memindai folder berat.
+  // Tanpa ini `eslint .` menelusuri node_modules/lib dan timeout (exit 124).
+  {
+    ignores: [
+      'node_modules/**',
+      'lib/**',
+      'dist/**',
+      '.yarn/**',
+      'docs/**',
+      'WAProto/**',
+      'tests/**',
+      'auth_info*/**',
+      '**/*.tgz',
+      '**/coverage',
+      '**/*.lock',
+      '**/.eslintrc.json',
+      'src/WABinary/index.ts',
+      'src/Tests/*',
+      '**/proto-extract',
+      'Example/Example.ts',
+      '**/*.d.ts',
+    ],
+  },
 
   // Reporter yang Error di luar globalIgnores — harus dihapus supaya `eslint src`
   // tidak gagal karena file yang memang sengaja di-skip.
   { linterOptions: { reportUnusedDisableDirectives: false } },
 
   {
-    files: ["**/*.ts"],
+    files: ["**/*.ts", "**/*.mts"],
     languageOptions: {
       parser: tsParser,
       ecmaVersion: 2022,
       sourceType: "module",
       parserOptions: {
-        project: "./tsconfig.json",
-        tsconfigRootDir: __dirname,
+        // projectService (standar typescript-eslint v8) menangani file dalam
+        // proyek tsconfig TANPA membatasi lint ke include-nya — jadi rule
+        // type-aware tetap hidup sementara `eslint .` tetap bisa menyapu
+        // seluruh repo. `project` lama hanya mencakup src/** dan bikin
+        // file di luar src gagal "not included in project".
+        projectService: true,
+        tsconfigRootDir: import.meta.dirname,
       },
     },
     plugins: {

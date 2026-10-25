@@ -2,7 +2,6 @@
 // Test untuk USyncResolver.searchByUsername menggunakan executeUSyncQuery engine
 
 import { USyncResolver } from '../../Utils/usync-resolver'
-import type { UserInfo } from '../../Utils/usync-resolver'
 import { jest } from '@jest/globals'
 
 const makeMockSock = (executeUSyncQueryResult: any) => {

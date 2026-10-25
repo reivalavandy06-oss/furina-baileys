@@ -228,6 +228,15 @@ printf "import m from '@vanzzz/furina-baileys'\nconsole.log(typeof m)\n" > t.mjs
 
 Both the CJS `require` and the ESM `import` must load. The dual build ships one shared `lib/WAProto` copy (ESM source) referenced from both the `lib/cjs` and `lib/esm` trees; Node's module-syntax detection is what makes that work — pinning a root `"type"` field has broken exactly this in a published version before. Any change near `type`, `main`, `module`, `exports`, or the build layout requires the fresh-install smoke test above.
 
+### Versioning & Documentation Sync
+Before publishing a new version, you MUST ensure the following are perfectly synchronized:
+1. **`package.json`**: The `version` field must match the release.
+2. **`CHANGELOG.md`**: Must have a new entry for the version (e.g., `## [1.1.2-furina-rc.1] - YYYY-MM-DD`).
+3. **`README.md`**: Search for any hardcoded version strings (e.g., `1.1.1-furina`) and update them to the new version. If possible, remove hardcoded versions entirely and use `latest` (e.g., `npm install @vanzzz/furina-baileys@latest`) so it doesn't require constant updates.
+4. **`docs/*.md`**: If any features changed, update the matching documentation pages.
+
+If you commit a version bump without updating the documentation, the PR will be rejected.
+
 ## What not to touch without coordination
 
 - **`libsignal` cryptographic flows** — session state, prekeys, sender-key derivation. Subtle bugs here are silent and brick downstream sessions.

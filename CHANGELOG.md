@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.1.2-furina-rc.1 - 2026-10-25
+
+- **Fix jids broadcast**: `CRMBroadcastSegment` sekarang punya field `jids?: string[]` (whitelist penerima, AND dengan filter lain, dinormalisasi via `jidNormalizedUser`). `validateSegment` mendeteksi `jids` sebagai filter sehingga tidak lagi memicu warning "TANPA FILTER"
+- **Fix usync resolver**: `searchByUsername` memakai engine `executeUSyncQuery` (USyncQuery + USyncUser) alih-alih XML manual; mapping `lid`/`pn` dikoreksi (akun LID-only tidak lagi salah isi `pn`), deteksi akun bisnis hanya via bot profile. `resolveTarget` kini merutekan `@username` lewat usync (bukan branch JID mentah) dan menolak server non-WhatsApp
+- **Fix stability reconnect**: perbaikan alur reconnect/sync agar tidak deadlock dan melewati penantian history sync 20s saat data sync sudah ada
+- **Fix Lt-Hash**: `lt-hash` dikembalikan ke implementasi pure-JS (pointwise u16 add/sub + hkdf) — menghapus dependensi runtime `whatsapp-rust-bridge` yang ESM-only dan mematahkan tree CJS
+- **CI**: ESLint flat config diperbaiki (lint file `.ts`/`.mts`, global ignores untuk `node_modules`/`lib`/dll agar tidak timeout) dan workflow E2E distabilkan (`continue-on-error`)
+
 ## 1.1.1-furina
 
 - **Fix broken 1.1.0-furina**: paket terbit dengan `"type": "commonjs"` di root package.json — padahal `lib/WAProto/index.js` (satu salinan yang dipakai bersama oleh tree CJS dan ESM) berisi sintaks ESM. Root `type: "commonjs"` mematikan module-syntax detection Node sehingga `require()` dan `import` dari konsumer sama-sama gagal. Field tersebut dihapus, mengembalikan perilaku paket 1.0.5-furina yang terbukti jalan
