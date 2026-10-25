@@ -9,7 +9,9 @@ on:
 jobs:
   check-lint:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    # ESLint dengan projectService (type-aware) lambat di runner GH Actions —
+    # 15 menit tidak cukup, job mati exit 124. 30 menit memberi ruang aman.
+    timeout-minutes: 30
 
     steps:
       - uses: actions/checkout@v4

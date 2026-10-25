@@ -56,6 +56,9 @@ tests/
 # yang boleh di-commit. Dua lockfile = drift = "works on my machine".
 package-lock.json
 
+# eslint --cache artifact (lint script pakai --cache, jangan commit)
+.eslintcache
+
 # opencode / local agent artifacts (never commit)
 .opencode/
 opencode.json
