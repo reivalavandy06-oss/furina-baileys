@@ -18,9 +18,6 @@ jobs:
     services:
       mock-server:
         image: ghcr.io/whiskeysockets-devtools/bartender:latest
-        credentials:
-          username: ${{ github.actor }}
-          password: ${{ secrets.BARTENDER_GHCR_TOKEN }}
         ports:
           - 8080:8080
         env:
