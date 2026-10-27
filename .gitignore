@@ -12,7 +12,7 @@ session/
 .yarn/*
 !.yarn/
 !.yarn/releases/
-!.yarn/releases/yarn-4.9.2.cjs
+!.yarn/releases/yarn-4.18.1.cjs
 */.DS_Store
 auth_info*.json
 baileys_auth_info*
