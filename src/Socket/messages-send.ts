@@ -1,4 +1,4 @@
-import NodeCache from '@cacheable/node-cache'
+import { LRUCacheStore } from '../Utils/cache-store'
 import { Boom } from '@hapi/boom'
 import { proto } from '../../WAProto/index.js'
 import { DEFAULT_CACHE_TTLS, WA_DEFAULT_EPHEMERAL } from '../Defaults'
@@ -107,10 +107,7 @@ export const makeMessagesSocket = (config: SocketConfig) => {
 
 	const userDevicesCache =
 		config.userDevicesCache ||
-		new NodeCache<JidWithDevice[]>({
-			stdTTL: DEFAULT_CACHE_TTLS.USER_DEVICES, // 5 minutes
-			useClones: false
-		})
+		new LRUCacheStore<JidWithDevice[]>({ ttl: DEFAULT_CACHE_TTLS.USER_DEVICES })
 	/** Serializes writes to userDevicesCache across USync refresh and device-notification handling. */
 	const devicesMutex = makeMutex()
 

@@ -1,4 +1,4 @@
-import NodeCache from '@cacheable/node-cache'
+import { LRUCacheStore } from './cache-store'
 import { Boom } from '@hapi/boom'
 import { AsyncLocalStorage } from 'async_hooks'
 import { Mutex } from 'async-mutex'
@@ -41,10 +41,8 @@ export function makeCacheableSignalKeyStore(
 ): SignalKeyStore {
 	const cache =
 		_cache ||
-		new NodeCache<SignalDataTypeMap[keyof SignalDataTypeMap]>({
-			stdTTL: DEFAULT_CACHE_TTLS.SIGNAL_STORE, // 5 minutes
-			useClones: false,
-			deleteOnExpire: true
+		new LRUCacheStore<SignalDataTypeMap[keyof SignalDataTypeMap]>({
+			ttl: DEFAULT_CACHE_TTLS.SIGNAL_STORE
 		})
 
 	// Mutex for protecting cache operations

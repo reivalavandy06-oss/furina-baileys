@@ -1,4 +1,4 @@
-import NodeCache from '@cacheable/node-cache'
+import { LRUCacheStore } from '../Utils/cache-store'
 import { Boom } from '@hapi/boom'
 import { randomBytes } from 'crypto'
 import Long from 'long'
@@ -145,19 +145,13 @@ export const makeMessagesRecvSocket = (config: SocketConfig) => {
 
 	const msgRetryCache =
 		config.msgRetryCounterCache ||
-		new NodeCache<number>({
-			stdTTL: DEFAULT_CACHE_TTLS.MSG_RETRY, // 1 hour
-			useClones: false
-		})
+		new LRUCacheStore<number>({ ttl: DEFAULT_CACHE_TTLS.MSG_RETRY })
 	const callOfferCache =
 		config.callOfferCache ||
-		new NodeCache<WACallEvent>({
-			stdTTL: DEFAULT_CACHE_TTLS.CALL_OFFER, // 5 mins
-			useClones: false
-		})
+		new LRUCacheStore<WACallEvent>({ ttl: DEFAULT_CACHE_TTLS.CALL_OFFER })
 
 	// Debounce identity-change session refreshes per JID to avoid bursts
-	const identityAssertDebounce = new NodeCache<boolean>({ stdTTL: 5, useClones: false })
+	const identityAssertDebounce = new LRUCacheStore<boolean>({ ttl: 5 })
 
 	let sendActiveReceipts = false
 
