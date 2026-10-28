@@ -63,7 +63,7 @@ export async function handleIdentityChange(
 		return { action: 'debounced' }
 	}
 
-	ctx.debounceCache.set(from, true)
+	void ctx.debounceCache.set(from, true)
 
 	const isOfflineNotification = !isStringNullOrEmpty(node.attrs.offline)
 	const hasExistingSession = await ctx.validateSession(from)

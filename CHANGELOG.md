@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.1.3-furina-rc.1 - 2026-10-29
+
+### Security
+- Backport CVE-2026-48063 (placeholderResendMessage validation).
+- Replace @cacheable/node-cache with lru-cache to mitigate Shai-Hulud supply chain malware risk.
+### Fixed
+- Update dependencies (ws, protobufjs, pino, music-metadata) to close CVEs.
+
 ## 1.1.2-furina-rc.1 - 2026-10-25
 
 - **Fix jids broadcast**: `CRMBroadcastSegment` sekarang punya field `jids?: string[]` (whitelist penerima, AND dengan filter lain, dinormalisasi via `jidNormalizedUser`). `validateSegment` mendeteksi `jids` sebagai filter sehingga tidak lagi memicu warning "TANPA FILTER"
