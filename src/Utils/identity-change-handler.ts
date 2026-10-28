@@ -1,4 +1,4 @@
-import NodeCache from '@cacheable/node-cache'
+import type { CacheStore } from '../Types/Socket'
 import { areJidsSameUser, type BinaryNode, getBinaryNodeChild, jidDecode } from '../WABinary'
 import { isStringNullOrEmpty } from './generics'
 import type { ILogger } from './logger'
@@ -19,7 +19,7 @@ export type IdentityChangeContext = {
 	meLid: string | undefined
 	validateSession: (jid: string) => Promise<{ exists: boolean; reason?: string }>
 	assertSessions: (jids: string[], force?: boolean) => Promise<boolean>
-	debounceCache: NodeCache<boolean>
+	debounceCache: CacheStore
 	logger: ILogger
 	/**
 	 * Invoked right before `assertSessions` is called for an existing-session identity change.
