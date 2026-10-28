@@ -1,64 +1,222 @@
-<h1><img alt="Baileys logo" src="https://raw.githubusercontent.com/WhiskeySockets/Baileys/refs/heads/master/Media/logo.png" height="75"/></h1>
+<p align="center"><img src="../Media/furina-thumb.jpg" alt="Furina Baileys" width="400" /></p>
 
+# 💍 FURINA-BAILEYS
+
+Baileys versi Furina untuk membuat bot WhatsApp dengan lebih banyak fitur, lebih stabil, dan mudah dikustomisasi.
+
+Fork dari [WhiskeySockets/Baileys](https://github.com/WhiskeySockets/Baileys) dengan lapisan produksi: stabilitas koneksi, broadcast CRM anti-ban, tracking delivery, dan button interaktif.
+
+[![npm version](https://img.shields.io/npm/v/@vanzzz/furina-baileys.svg)](https://www.npmjs.com/package/@vanzzz/furina-baileys)
+[![License](https://img.shields.io/npm/l/@vanzzz/furina-baileys.svg)](https://github.com/reivalavandy06-oss/furina-baileys/blob/master/LICENSE)
+[![TypeScript](https://img.shields.io/badge/typescript-5.9-blue.svg)](https://www.typescriptlang.org/)
+[![Dual CJS/ESM](https://img.shields.io/badge/module-dual%20CJS%2FESM-brightgreen.svg)](package.json)
+
+`v1.1.2-furina-rc.1` · Node.js >= 20
 
 > [!CAUTION]
-> NOTICE OF BREAKING CHANGE.
+> Baileys 7.0.0 memperkenalkan breaking changes. Baca [migration guide upstream](https://whiskey.so/migrate-latest) sebelum naik versi.
+
+---
+
+## ✨ Fitur Utama
+
+**Inti bot**
+
+- **Bot WhatsApp berbasis Baileys** — socket Noise/protobuf langsung, tanpa browser dan tanpa Selenium
+- **Multi-device support** — device suffix, agent suffix, dan LID/PN duality ditangani lewat helper JID
+- **Message detection 97 tipe** — termasuk view-once, reaction, dan interactive response
+- **Button & carousel** — 17 tipe button native, plus `MessageBuilder` fluent untuk compose pesan kompleks
+
+**Anti-ban**
+
+- **Rate limiter per menit dan per jam** — `RateLimiter`, rolling window, akurasi lintas panggilan paralel
+- **Quarantine 403 persisten** — grup/kontak yang menolak 403 dicatat ke disk, bukan hanya di memori
+- **Delivery tracking** — status `messages.update` dengan buffer untuk update yang datang sebelum record terdaftar
+- **Health guard** — risk score, auto-pause saat risiko tinggi, dan latch per jendela konten
+- **Timing manusia** — `jitter`, `waitForSendWindow`, `humanSend`, plus profil `ori` dan `business`
+
+**Produksi**
+
+- **Stabilizer koneksi** — `StabilityManager` dengan statistik, backoff, dan mode stealth
+- **Broadcast CRM** — segmentasi customer (termasuk whitelist `jids`), template spintax, dan kanal newsletter
+- **Retry & backoff** — percobaan ulang dengan klasifikasi error 403/408/440/411
+- **Identity resolver** — mapping LID ↔ PN dua arah, pencarian `@username` via USync, dan util link `wa.me`
+
+> Setiap listener punya jalur pelepasan (`dispose()`) dan setiap buffer punya batas, jadi uptime panjang tidak menyebabkan buildup.
+
+---
+
+## 📦 Instalasi
+
+```bash
+npm install @vanzzz/furina-baileys
+```
+
+atau
+
+```bash
+yarn add @vanzzz/furina-baileys
+```
+
+atau
+
+```bash
+pnpm add @vanzzz/furina-baileys
+```
+
+**Kebutuhan:** Node.js >= 20 (library memblokir versi lebih lama saat install). TypeScript >= 5 opsional — library sudah dikompilasi.
+
+---
+
+## 🚀 Quick Start
+
+### CommonJS (require)
+
+```javascript
+const { makeWASocket, useMultiFileAuthState } = require('@vanzzz/furina-baileys')
+
+async function start() {
+  // state auth disimpan di folder ./session
+  const { state, saveCreds } = await useMultiFileAuthState('session')
+  const sock = makeWASocket({ auth: state })
+
+  // simpan credential setiap kali berubah
+  sock.ev.on('creds.update', saveCreds)
+
+  sock.ev.on('connection.update', (update) => {
+    const { connection, lastDisconnect } = update
+    if (connection === 'close') {
+      console.log('terputus:', lastDisconnect?.error)
+    } else if (connection === 'open') {
+      console.log('terhubung sebagai', sock.user?.name)
+    }
+  })
+
+  sock.ev.on('messages.upsert', async ({ messages }) => {
+    for (const m of messages) {
+      if (m.message?.conversation) {
+        console.log(`${m.key.remoteJid}: ${m.message.conversation}`)
+      }
+    }
+  })
+
+  // kirim pesan
+  await sock.sendMessage('628xxxxxxxxxx@s.whatsapp.net', { text: 'Halo dari Furina!' })
+}
+
+start()
+```
+
+### ESM (import)
+
+```javascript
+import { makeWASocket, useMultiFileAuthState } from '@vanzzz/furina-baileys'
+
+async function start() {
+  const { state, saveCreds } = await useMultiFileAuthState('session')
+  const sock = makeWASocket({ auth: state })
+
+  sock.ev.on('creds.update', saveCreds)
+
+  sock.ev.on('connection.update', (update) => {
+    const { connection, lastDisconnect } = update
+    if (connection === 'close') {
+      console.log('terputus:', lastDisconnect?.error)
+    } else if (connection === 'open') {
+      console.log('terhubung sebagai', sock.user?.name)
+    }
+  })
+
+  sock.ev.on('messages.upsert', async ({ messages }) => {
+    for (const m of messages) {
+      if (m.message?.conversation) {
+        console.log(`${m.key.remoteJid}: ${m.message.conversation}`)
+      }
+    }
+  })
+
+  await sock.sendMessage('628xxxxxxxxxx@s.whatsapp.net', { text: 'Halo dari Furina!' })
+}
+
+start()
+```
+
+---
+
+## 🔄 Migrasi dari `furina-baileys`
+
+Paket ini menggantikan paket unscoped `furina-baileys`.
+
+**1. Install paket baru:**
+
+```bash
+npm install @vanzzz/furina-baileys
+```
+
+**2. Ganti nama import:**
+
+```diff
+- const { makeWASocket } = require('furina-baileys')
++ const { makeWASocket } = require('@vanzzz/furina-baileys')
+```
+
+```diff
+- import { makeWASocket } from 'furina-baileys'
++ import { makeWASocket } from '@vanzzz/furina-baileys'
+```
+
+**3. Tidak ada perubahan API besar.** Semua fungsi, opsi, dan event tetap sama. Yang berubah hanya nama paket.
+
+Kalau package `furina-baileys` lama masih terpasang di project yang sama, tidak masalah — keduanya bisa hidup berdampingan.
+
+---
+
+## 📚 Dokumentasi
+
+Ringkasan di atas adalah pintu masuk. Dokumentasi lengkap dipisah per topik supaya mudah dicari dan tetap ringkas di halaman npm.
+
+| Topik | Isi |
+|---|---|
+| [Getting Started](docs/getting-started.md) | Koneksi dasar, pairing device, quick start |
+| [Antiban](docs/antiban.md) | Cara aktifkan & konfigurasi anti-ban, `waitForSendWindow`, `getProfile`, `RateLimiter` |
+| [Stability](docs/stability.md) | Reconnect, backoff eksponensial, stealth mode, `StabilityManager` |
+| [Broadcast CRM](docs/broadcast-crm.md) | Segmentasi customer, template spintax, kanal newsletter, alur end-to-end |
+| [Message Builder](docs/message-builder.md) | 17 tipe button, carousel, `MessageBuilder`, button tracker |
+| [Resolver](docs/resolver.md) | Mapping LID ↔ PN dua arah, query USync, util link `wa.me` |
+| [Message Detection](docs/message-detection.md) | Mengenali 97 tipe pesan WhatsApp |
+| [Troubleshooting](docs/troubleshooting.md) | Masalah umum, reconnect, session, rate limit, delivery, quarantine |
+| [API Reference](docs/api-reference.md) | Daftar API publik yang tersedia |
+
+👉 **[Mulai dari beranda docs/](docs/index.md)**
+
+---
+
+## 📄 Lisensi
+
+**Apache License 2.0** dengan kewajiban atribusi.
+
+**Hak cipta:**
+- WhiskeySockets/Baileys (2025) — proyek asli
+- Avandy (2026) — modifikasi dan fitur tambahan
+
+Anda wajib mencantumkan kredit saat memakai, memodifikasi, atau mendistribusikan library ini:
+
+```markdown
+Built with [Furina-Baileys](https://github.com/reivalavandy06-oss/furina-baileys)
+Based on [WhiskeySockets/Baileys](https://github.com/WhiskeySockets/Baileys)
+Modifications by Avandy
+```
+
+> Fork wajib mempertahankan atribusi. Menghapus kredit tanpa izin dapat berakibat DMCA takedown notice.
 >
-> As of 7.0.0, multiple breaking changes were introduced into the library.
->
-> Please check out https://whiskey.so/migrate-latest for more information.
+> Library ini untuk automation yang legitimate. Penyalahgunaan (spam, scam, blast tanpa izin) adalah tanggung jawab pengguna, bukan developer.
 
-Baileys is a WebSockets-based TypeScript library for interacting with the WhatsApp Web API.
+---
 
-Join the WhiskeySockets community via the link: https://whiskey.so/discord
+<div align="center">
 
-# Usage & Guide
+**Made with 💙 by the Furina-Baileys team**
 
-> [!IMPORTANT]
-> The new guide is a work in progress. Expect missing pages/content. [Report missing or incorrect content.](https://github.com/WhiskeySockets/baileys.wiki-site/issues/new)
->
-> **You can still access the old guide here:** [README.md](https://github.com/WhiskeySockets/Baileys/tree/master/README.md), or the [NPM homepage](https://npmjs.com/package/baileys).
+[Report Bug](https://github.com/reivalavandy06-oss/furina-baileys/issues) · [Request Feature](https://github.com/reivalavandy06-oss/furina-baileys/issues)
 
-The new guide is posted at https://baileys.wiki .
-
-# Get Support
-
-If you'd like business to enterprise-level support from Rajeh, the current maintainer of Baileys, you can book a video chat. Book a 1 hour time slot by contacting him on Discord or pre-ordering [here](https://purpshell.dev/book). The earlier you pre-order the better, as his time slots usually fill up very quickly. He offers immense value per hour and will answer all your questions before the time runs out.
-
-If you are a business, we encourage you to contribute back to the high development costs of the project and to feed the maintainers who dump tens of hours a week on this. You can do so by booking meetings or sponsoring below. All support, even in bona fide / contribution hours, is welcome by businesses of all sizes. This is not condoning or endorsing businesses to use the library. See the Disclaimer below.
-
-# Sponsor
-
-If you'd like to financially support this project, you can do so by supporting the current maintainer [here](https://purpshell.dev/sponsor).
-
-# Disclaimer
-> [!CAUTION]
-> This project is not affiliated, associated, authorized, endorsed by, or in any way officially connected with WhatsApp or any of its subsidiaries or its affiliates.
-> The official WhatsApp website can be found at whatsapp.com. "WhatsApp" as well as related names, marks, emblems and images are registered trademarks of their respective owners.
->
-> The maintainers of Baileys do not in any way condone the use of this application in practices that violate the Terms of Service of WhatsApp. The maintainers of this application call upon the personal responsibility of its users to use this application in a fair way, as it is intended to be used.
-> Use at your own discretion. Do not spam people with this. We discourage any stalkerware, bulk or automated messaging usage.
-
-# License
-Copyright (c) 2025 Rajeh Taher/WhiskeySockets
-
-Licensed under the MIT License:
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
-
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
-
-Thus, the maintainers of the project can't be held liable for any potential misuse of this project.
+</div>

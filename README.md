@@ -1,6 +1,4 @@
-<div align="center">
-
-![Furina-Baileys](Media/furina-thumb.jpg)
+<p align="center"><img src="Media/furina-thumb.jpg" alt="Furina Baileys" width="400" /></p>
 
 # 💍 FURINA-BAILEYS
 
@@ -13,12 +11,10 @@ Fork dari [WhiskeySockets/Baileys](https://github.com/WhiskeySockets/Baileys) de
 [![TypeScript](https://img.shields.io/badge/typescript-5.9-blue.svg)](https://www.typescriptlang.org/)
 [![Dual CJS/ESM](https://img.shields.io/badge/module-dual%20CJS%2FESM-brightgreen.svg)](package.json)
 
-`v1.1.2-furina-rc.1` · Node.js >= 20 · 🎬 [Demo Video](Media/furina-demo.mp4)
+`v1.1.2-furina-rc.1` · Node.js >= 20
 
 > [!CAUTION]
 > Baileys 7.0.0 memperkenalkan breaking changes. Baca [migration guide upstream](https://whiskey.so/migrate-latest) sebelum naik versi.
-
-</div>
 
 ---
 
@@ -70,17 +66,11 @@ pnpm add @vanzzz/furina-baileys
 
 **Kebutuhan:** Node.js >= 20 (library memblokir versi lebih lama saat install). TypeScript >= 5 opsional — library sudah dikompilasi.
 
-**Verifikasi:**
-
-```javascript
-const baileys = require('@vanzzz/furina-baileys')
-console.log('makeWASocket:', typeof baileys.makeWASocket)
-console.log('Browsers:', Object.keys(baileys.Browsers).join(', '))
-```
-
 ---
 
-## 🚀 Contoh Penggunaan
+## 🚀 Quick Start
+
+### CommonJS (require)
 
 ```javascript
 const { makeWASocket, useMultiFileAuthState } = require('@vanzzz/furina-baileys')
@@ -117,10 +107,38 @@ async function start() {
 start()
 ```
 
-ESM dengan import named berjalan sama:
+### ESM (import)
 
 ```javascript
-import makeWASocket, { useMultiFileAuthState } from '@vanzzz/furina-baileys'
+import { makeWASocket, useMultiFileAuthState } from '@vanzzz/furina-baileys'
+
+async function start() {
+  const { state, saveCreds } = await useMultiFileAuthState('session')
+  const sock = makeWASocket({ auth: state })
+
+  sock.ev.on('creds.update', saveCreds)
+
+  sock.ev.on('connection.update', (update) => {
+    const { connection, lastDisconnect } = update
+    if (connection === 'close') {
+      console.log('terputus:', lastDisconnect?.error)
+    } else if (connection === 'open') {
+      console.log('terhubung sebagai', sock.user?.name)
+    }
+  })
+
+  sock.ev.on('messages.upsert', async ({ messages }) => {
+    for (const m of messages) {
+      if (m.message?.conversation) {
+        console.log(`${m.key.remoteJid}: ${m.message.conversation}`)
+      }
+    }
+  })
+
+  await sock.sendMessage('628xxxxxxxxxx@s.whatsapp.net', { text: 'Halo dari Furina!' })
+}
+
+start()
 ```
 
 ---
@@ -143,8 +161,8 @@ npm install @vanzzz/furina-baileys
 ```
 
 ```diff
-- import makeWASocket from 'furina-baileys'
-+ import makeWASocket from '@vanzzz/furina-baileys'
+- import { makeWASocket } from 'furina-baileys'
++ import { makeWASocket } from '@vanzzz/furina-baileys'
 ```
 
 **3. Tidak ada perubahan API besar.** Semua fungsi, opsi, dan event tetap sama. Yang berubah hanya nama paket.
@@ -159,15 +177,15 @@ Ringkasan di atas adalah pintu masuk. Dokumentasi lengkap dipisah per topik supa
 
 | Topik | Isi |
 |---|---|
-[Getting Started](docs/getting-started.md) | Koneksi dasar, pairing device, quick start |
-[Antiban](docs/antiban.md) | Cara aktifkan & konfigurasi anti-ban, `waitForSendWindow`, `getProfile`, `RateLimiter` |
-[Stability](docs/stability.md) | Reconnect, backoff eksponensial, stealth mode, `StabilityManager` |
-[Broadcast CRM](docs/broadcast-crm.md) | Segmentasi customer, template spintax, kanal newsletter, alur end-to-end |
-[Message Builder](docs/message-builder.md) | 17 tipe button, carousel, `MessageBuilder`, button tracker |
-[Resolver](docs/resolver.md) | Mapping LID ↔ PN dua arah, query USync, util link `wa.me` |
-[Message Detection](docs/message-detection.md) | Mengenali 97 tipe pesan WhatsApp |
-[Troubleshooting](docs/troubleshooting.md) | Masalah umum, reconnect, session, rate limit, delivery, quarantine |
-[API Reference](docs/api-reference.md) | Daftar API publik yang tersedia |
+| [Getting Started](docs/getting-started.md) | Koneksi dasar, pairing device, quick start |
+| [Antiban](docs/antiban.md) | Cara aktifkan & konfigurasi anti-ban, `waitForSendWindow`, `getProfile`, `RateLimiter` |
+| [Stability](docs/stability.md) | Reconnect, backoff eksponensial, stealth mode, `StabilityManager` |
+| [Broadcast CRM](docs/broadcast-crm.md) | Segmentasi customer, template spintax, kanal newsletter, alur end-to-end |
+| [Message Builder](docs/message-builder.md) | 17 tipe button, carousel, `MessageBuilder`, button tracker |
+| [Resolver](docs/resolver.md) | Mapping LID ↔ PN dua arah, query USync, util link `wa.me` |
+| [Message Detection](docs/message-detection.md) | Mengenali 97 tipe pesan WhatsApp |
+| [Troubleshooting](docs/troubleshooting.md) | Masalah umum, reconnect, session, rate limit, delivery, quarantine |
+| [API Reference](docs/api-reference.md) | Daftar API publik yang tersedia |
 
 👉 **[Mulai dari beranda docs/](docs/index.md)**
 
