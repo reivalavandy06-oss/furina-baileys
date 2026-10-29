@@ -30,9 +30,9 @@
     "resolveJsonModule": true,
 
     // DX Boosters
-    "allowJs": true,
-    "checkJs": true,
+    "allowJs": false,
+    "checkJs": false,
   },
-  "include": ["src/**/*.ts", "scripts/check-doc-sync.js"],
+  "include": ["src/**/*.ts"],
   "exclude": ["node_modules"]
 }
