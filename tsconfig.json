@@ -10,7 +10,6 @@
     "moduleDetection": "force",
 
     "lib": ["ES2020", "ESNext.Array", "DOM"],
-    "rootDir": "./src",
 
     // ESM Features
     "verbatimModuleSyntax": true,
@@ -31,9 +30,9 @@
     "resolveJsonModule": true,
 
     // DX Boosters
-    "allowJs": false,
-    "checkJs": false,
+    "allowJs": true,
+    "checkJs": true,
   },
-  "include": ["src/**/*.ts"],
+  "include": ["src/**/*.ts", "scripts/check-doc-sync.js"],
   "exclude": ["node_modules"]
 }

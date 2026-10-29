@@ -33,5 +33,8 @@ jobs:
       - name: Install packages
         run: node .yarn/releases/yarn-4.9.2.cjs install --immutable
 
+      - name: Clear ESLint cache
+        run: rm -f .eslintcache
+
       - name: Check linting
         run: node .yarn/releases/yarn-4.9.2.cjs run lint
