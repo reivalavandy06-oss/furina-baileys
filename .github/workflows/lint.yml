@@ -31,10 +31,10 @@ jobs:
             ${{ runner.os }}-yarn-
 
       - name: Install packages
-        run: node .yarn/releases/yarn-4.9.2.cjs install --immutable
+        run: node .yarn/releases/yarn-4.18.1.cjs install --immutable
 
       - name: Clear ESLint cache
         run: rm -f .eslintcache
 
       - name: Check linting
-        run: node .yarn/releases/yarn-4.9.2.cjs run lint
+        run: node .yarn/releases/yarn-4.18.1.cjs run lint

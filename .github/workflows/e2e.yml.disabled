@@ -44,7 +44,7 @@ jobs:
             ${{ runner.os }}-yarn-
 
       - name: Install dependencies
-        run: node .yarn/releases/yarn-4.9.2.cjs install --immutable
+        run: node .yarn/releases/yarn-4.18.1.cjs install --immutable
 
       - name: Wait for mock server
         run: |
@@ -63,4 +63,4 @@ jobs:
         env:
           SOCKET_URL: "wss://127.0.0.1:8080/ws/chat"
           ADV_SECRET_KEY: "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="
-        run: node .yarn/releases/yarn-4.9.2.cjs run test:e2e
+        run: node .yarn/releases/yarn-4.18.1.cjs run test:e2e

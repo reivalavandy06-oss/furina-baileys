@@ -29,10 +29,10 @@ jobs:
 
       # Pakai runtime Yarn yang sudah di-commit, jadi tidak bergantung Corepack.
       - name: Install dependencies
-        run: node .yarn/releases/yarn-4.9.2.cjs install --immutable
+        run: node .yarn/releases/yarn-4.18.1.cjs install --immutable
 
       - name: Build
-        run: node .yarn/releases/yarn-4.9.2.cjs run build
+        run: node .yarn/releases/yarn-4.18.1.cjs run build
 
       - name: Publish
         run: npm publish --access public
