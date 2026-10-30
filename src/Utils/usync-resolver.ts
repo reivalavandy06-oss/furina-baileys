@@ -24,6 +24,7 @@ export class USyncResolver {
 	async searchByUsername(username: string): Promise<UserInfo | null> {
 		if (!username || username.trim().length === 0) return null
 		const cleanUsername = username.trim().replace(/^@/, '')
+		if (!cleanUsername) return null
 
 		try {
 			const q = new USyncQuery()
@@ -37,30 +38,58 @@ export class USyncResolver {
 
 			// this.sock.executeUSyncQuery is not in public TypeSocket type, cast to access
 			const res = await (this.sock as any).executeUSyncQuery(q)
-			const entry = res?.list?.[0]
+
+			// Business accounts often come back addressed only by LID (no top-level <user jid>),
+			// so we can't require `id`. Pick the first entry that carries *any* identifier.
+			const list: any[] = Array.isArray(res?.list) ? res.list : []
+			const entry = list.find(e => e && (e.id || e.lid || e.username))
 			if (!entry) return null
 
-			const idIsLid = typeof entry.id === 'string' && entry.id.endsWith('@lid')
-			const lidFromProtocol = (entry.lid as string) ?? null
-			
-			// Business detection ONLY via bot profile protocol.
-			// contact protocol returns whether user has our bot's number saved (type='in'),
-			// NOT whether the user is a business account.
-			const botProfile = entry.bot as any
-			
-			return {
-				jid: entry.id ?? null,
-				lid: idIsLid ? entry.id : lidFromProtocol,
-				pn: idIsLid ? null : (entry.id ?? null),
-				username: (entry.username as string) ?? cleanUsername,
-				// Business ONLY if bot profile exists in response
-				isBusiness: botProfile ? true : null,
-				pushname: null,
-				status: null,
-			}
+			return USyncResolver.mapUsernameEntry(entry, cleanUsername)
 		} catch (err) {
 			this.sock?.logger?.warn?.({ err, username: cleanUsername }, 'searchByUsername failed')
 			return null
+		}
+	}
+
+	/**
+	 * Normalise a parsed USync list entry into a {@link UserInfo}.
+	 *
+	 * Handles the shapes returned for business / LID-migrated accounts:
+	 * - identifier may be only a LID (`entry.lid`) with no top-level `entry.id`
+	 * - `entry.id` may itself be a LID, in which case `pn` stays null
+	 * - business is signalled either by a bot profile (`entry.bot`) or an SMB marker
+	 *   (`type="smb"` contact, `entry.smb` / `entry.business`)
+	 */
+	private static mapUsernameEntry(entry: any, cleanUsername: string): UserInfo {
+		const rawId = typeof entry.id === 'string' && entry.id.length > 0 ? entry.id : null
+		const lidFromProtocol = typeof entry.lid === 'string' && entry.lid.length > 0 ? entry.lid : null
+		const idIsLid = !!rawId && rawId.endsWith('@lid')
+
+		const lid = idIsLid ? rawId : lidFromProtocol
+		const pn = rawId && !idIsLid ? rawId : null
+		// Prefer the explicit JID; fall back to the LID so LID-only business accounts
+		// still yield a usable JID instead of null.
+		const jid = rawId ?? lidFromProtocol ?? null
+
+		const botProfile = entry.bot
+		// `USyncContactProtocol` now surfaces the raw contact `type` as `contactType`
+		// (e.g. "in" / "smb"), while `contact` stays boolean-compatible for other callers.
+		const smbMarker =
+			entry.smb === true ||
+			entry.business === true ||
+			entry.contactType === 'smb' ||
+			entry.contact === 'smb'
+
+		return {
+			jid,
+			lid,
+			pn,
+			username: (entry.username as string) || cleanUsername,
+			// Business ONLY if a bot profile or an SMB marker exists in the response.
+			isBusiness: botProfile || smbMarker ? true : null,
+			pushname: null,
+			status: null
 		}
 	}
 

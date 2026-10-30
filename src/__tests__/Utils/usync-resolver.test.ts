@@ -2,6 +2,7 @@
 // Test untuk USyncResolver.searchByUsername menggunakan executeUSyncQuery engine
 
 import { USyncResolver } from '../../Utils/usync-resolver'
+import { USyncQuery } from '../../WAUSync/USyncQuery'
 import { jest } from '@jest/globals'
 
 const makeMockSock = (executeUSyncQueryResult: any) => {
@@ -13,6 +14,21 @@ const makeMockSock = (executeUSyncQueryResult: any) => {
 		generateMessageTag: () => 'test-tag',
 	}
 }
+
+/** Raw USync iq result wrapping the given <user> nodes. */
+const rawUsyncResult = (users: any[]) => ({
+	tag: 'iq',
+	attrs: { type: 'result' },
+	content: [{ tag: 'usync', attrs: {}, content: [{ tag: 'list', attrs: {}, content: users }] }]
+})
+
+/** Sock whose executeUSyncQuery runs the real USyncQuery parser on a raw response. */
+const makeParsingSock = (raw: any) => ({
+	ev: { on: () => {} },
+	logger: { warn: jest.fn() },
+	generateMessageTag: () => 'test-tag',
+	executeUSyncQuery: (q: any) => Promise.resolve(q.parseUSyncQueryResult(raw))
+})
 
 describe('USyncResolver.searchByUsername', () => {
 	test('returns UserInfo on success', async () => {
@@ -100,5 +116,91 @@ describe('USyncResolver.searchByUsername', () => {
 		expect(result).not.toBeNull()
 		expect(result?.lid).toBe('789@lid')
 		expect(result?.isBusiness).toBe(true)
+	})
+
+	test('resolves a LID-only business account (no <user jid>) through the real parser', async () => {
+		// Business / LID-migrated accounts can come back addressed only by `lid`, with no
+		// top-level `jid`. The parser must keep the entry and the resolver return a valid JID.
+		const raw = rawUsyncResult([
+			{
+				tag: 'user',
+				attrs: { lid: '999@lid' },
+				content: [
+					{ tag: 'contact', attrs: { type: 'smb' } },
+					{ tag: 'username', attrs: {}, content: 'bizonlylid' },
+					{ tag: 'lid', attrs: { val: '999@lid' } }
+				]
+			}
+		])
+
+		const resolver = new USyncResolver(makeParsingSock(raw))
+		const result = await resolver.searchByUsername('bizonlylid')
+
+		expect(result).not.toBeNull()
+		expect(result?.jid).toBe('999@lid')
+		expect(result?.lid).toBe('999@lid')
+		expect(result?.pn).toBeNull()
+		expect(result?.isBusiness).toBe(true)
+	})
+
+	test('detects business (SMB) via type="smb" through the real parser', async () => {
+		const raw = rawUsyncResult([
+			{
+				tag: 'user',
+				attrs: { jid: '555@s.whatsapp.net' },
+				content: [
+					{ tag: 'contact', attrs: { type: 'smb' } },
+					{ tag: 'username', attrs: {}, content: 'smbbiz' },
+					{ tag: 'lid', attrs: { val: '555@lid' } }
+				]
+			}
+		])
+
+		const resolver = new USyncResolver(makeParsingSock(raw))
+		const result = await resolver.searchByUsername('smbbiz')
+
+		expect(result).not.toBeNull()
+		expect(result?.jid).toBe('555@s.whatsapp.net')
+		expect(result?.pn).toBe('555@s.whatsapp.net')
+		expect(result?.lid).toBe('555@lid')
+		expect(result?.isBusiness).toBe(true)
+	})
+
+	test('keeps contact boolean-compatible and does not flag type="in" as business', async () => {
+		// Backward-compat: the contact protocol still exposes a boolean `contact`
+		// (consumed by onWhatsApp) while `contactType` carries the raw type.
+		const raw = rawUsyncResult([
+			{
+				tag: 'user',
+				attrs: { jid: '123@s.whatsapp.net' },
+				content: [{ tag: 'contact', attrs: { type: 'in' } }, { tag: 'username', attrs: {}, content: 'regular' }]
+			}
+		])
+
+		const parsed = new USyncQuery()
+			.withContactProtocol()
+			.withUsernameProtocol()
+			.parseUSyncQueryResult(raw)
+		const entry = parsed?.list[0] as any
+		expect(entry.contact).toBe(true)
+		expect(entry.contactType).toBe('in')
+
+		const resolver = new USyncResolver(makeParsingSock(raw))
+		const result = await resolver.searchByUsername('regular')
+		expect(result?.isBusiness).toBeNull()
+	})
+
+	test('keeps the entry when only a username attribute is present', async () => {
+		const raw = rawUsyncResult([
+			{
+				tag: 'user',
+				attrs: { username: 'onlyname' },
+				content: [{ tag: 'username', attrs: {}, content: 'onlyname' }]
+			}
+		])
+
+		const parsed = new USyncQuery().withUsernameProtocol().parseUSyncQueryResult(raw)
+		expect(parsed?.list).toHaveLength(1)
+		expect((parsed?.list[0] as any).id).toBe('onlyname')
 	})
 })
