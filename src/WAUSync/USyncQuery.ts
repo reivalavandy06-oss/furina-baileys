@@ -73,23 +73,34 @@ export class USyncQuery {
 
 		if (listNode?.content && Array.isArray(listNode.content)) {
 			queryResult.list = listNode.content.reduce((acc: USyncQueryResultList[], node) => {
-				const id = node?.attrs.jid
+				// Allow entries that lack a top-level `jid`: business / LID-migrated
+				// accounts may be identified only by `lid` or `username` on the <user> node.
+				const id = node?.attrs?.jid ?? node?.attrs?.lid ?? node?.attrs?.username
 				if (id) {
-					const data = Array.isArray(node?.content)
-						? Object.fromEntries(
-								node.content
-									.map(content => {
-										const protocol = content.tag
-										const parser = protocolMap[protocol]
-										if (parser) {
-											return [protocol, parser(content)]
-										} else {
-											return [protocol, null]
-										}
-									})
-									.filter(([, b]) => b !== null) as [string, unknown][]
-							)
-						: {}
+					const data: Record<string, unknown> = {}
+
+					if (Array.isArray(node?.content)) {
+						for (const content of node.content) {
+							const protocol = content.tag
+							const parser = protocolMap[protocol]
+							if (!parser) continue
+
+							const parsed = parser(content)
+							if (parsed === null) continue
+
+							// Normalise the contact protocol: keep `contact` boolean-compatible for
+							// existing callers (e.g. onWhatsApp) and surface the raw `type` separately
+							// so business ("smb") markers are not lost.
+							if (protocol === 'contact' && typeof parsed === 'object' && 'isContact' in parsed) {
+								const contactResult = parsed as { isContact: boolean; type: string | null }
+								data.contact = contactResult.isContact
+								data.contactType = contactResult.type
+							} else {
+								data[protocol] = parsed
+							}
+						}
+					}
+
 					acc.push({ ...data, id })
 				}
 

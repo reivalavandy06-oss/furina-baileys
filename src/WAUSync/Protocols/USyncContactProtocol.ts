@@ -47,12 +47,16 @@ export class USyncContactProtocol implements USyncQueryProtocol {
 		}
 	}
 
-	parser(node: BinaryNode): boolean {
+	parser(node: BinaryNode): { isContact: boolean; type: string | null } {
 		if (node.tag === 'contact') {
 			assertNodeErrorFree(node)
-			return node?.attrs?.type === 'in'
+			const type = typeof node?.attrs?.type === 'string' ? node.attrs.type : null
+			// `type="in"` means the user has us saved; `type="smb"` marks a business
+			// account. Preserve the raw `type` instead of collapsing to a bare boolean
+			// so downstream code can distinguish business (SMB) contacts.
+			return { isContact: type === 'in', type }
 		}
 
-		return false
+		return { isContact: false, type: null }
 	}
 }
