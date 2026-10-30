@@ -70,6 +70,55 @@ import {
 import { USyncQuery, USyncUser } from '../WAUSync'
 import { makeNewsletterSocket } from './newsletter'
 
+export type StatusAddressing = {
+	/** `addressing_mode` that must be advertised on the status stanza for LID accounts */
+	addressingMode: 'lid' | 'pn'
+	/** identity used to encrypt the status sender-key message (LID for LID accounts) */
+	senderIdentity: string
+	/** deduplicated recipients, normalized into the account's addressing family */
+	recipients: string[]
+}
+
+/**
+ * Resolve how a `status@broadcast` send must be addressed.
+ *
+ * Accounts that migrated to LID (`me.lid` present) must send status under their LID
+ * identity and address recipients by LID. Mixing PN recipients with a LID sender
+ * identity makes the server reject the stanza with `smax-invalid (479)`.
+ *
+ * Kept pure + exported so the addressing decision can be unit-tested without a socket.
+ */
+export const resolveStatusAddressing = (params: {
+	meId: string
+	meLid?: string
+	recipients?: string[]
+	/** resolves a PN to its known LID (returns undefined when unmapped) */
+	resolveLid?: (pn: string) => string | undefined
+}): StatusAddressing => {
+	const isLidAccount = Boolean(params.meLid)
+	const addressingMode: 'lid' | 'pn' = isLidAccount ? 'lid' : 'pn'
+	const senderIdentity = isLidAccount ? (params.meLid as string) : params.meId
+
+	const seen = new Set<string>()
+	const recipients: string[] = []
+	for (const raw of params.recipients ?? []) {
+		const jid = jidNormalizedUser(raw)
+		if (!jid) continue
+
+		let resolved = jid
+		if (isLidAccount && isPnUser(jid) && params.resolveLid) {
+			resolved = params.resolveLid(jid) || jid
+		}
+
+		if (!seen.has(resolved)) {
+			seen.add(resolved)
+			recipients.push(resolved)
+		}
+	}
+
+	return { addressingMode, senderIdentity, recipients }
+}
+
 export const makeMessagesSocket = (config: SocketConfig) => {
 	const {
 		logger,
@@ -736,8 +785,30 @@ export const makeMessagesSocket = (config: SocketConfig) => {
 					}
 				}
 
-				if (isStatus && statusJidList) {
-					participantsList.push(...statusJidList)
+				let statusAddressing: StatusAddressing | undefined
+				if (isStatus) {
+					// LID accounts must address status recipients by LID; map any PN recipients
+					// through the known LID mappings so the skmsg recipients match the sender.
+					let resolveLid: ((pn: string) => string | undefined) | undefined
+					let statusRecipients = statusJidList
+					if (meLid && statusJidList?.length) {
+						const pnsToMap = statusJidList.filter(jid => isPnUser(jidNormalizedUser(jid)))
+						if (pnsToMap.length) {
+							try {
+								const mapped = await signalRepository.lidMapping.getLIDsForPNs(pnsToMap)
+								const lidByPn = new Map<string, string>(
+									(mapped || []).map(entry => [jidNormalizedUser(entry.pn), entry.lid])
+								)
+								resolveLid = pn => lidByPn.get(jidNormalizedUser(pn))
+							} catch (err) {
+								logger.debug({ err, count: pnsToMap.length }, 'failed to resolve LIDs for status recipients')
+							}
+						}
+					}
+
+					statusAddressing = resolveStatusAddressing({ meId, meLid, recipients: statusRecipients, resolveLid })
+					statusRecipients = statusAddressing.recipients
+					participantsList.push(...statusRecipients)
 				}
 
 				const additionalDevices = await getUSyncDevices(participantsList, !!useUserDevicesCache, false)
@@ -747,6 +818,13 @@ export const makeMessagesSocket = (config: SocketConfig) => {
 					additionalAttributes = {
 						...additionalAttributes,
 						addressing_mode: groupData?.addressingMode || 'lid'
+					}
+				} else if (isStatus && meLid) {
+					// LID accounts must advertise LID addressing on the status stanza, otherwise the
+					// server rejects the sender-key message with smax-invalid (479).
+					additionalAttributes = {
+						...additionalAttributes,
+						addressing_mode: statusAddressing?.addressingMode || 'lid'
 					}
 				}
 
@@ -758,7 +836,8 @@ export const makeMessagesSocket = (config: SocketConfig) => {
 				const bytes = encodeWAMessage(patched)
 				reportingMessage = patched
 				const groupAddressingMode = additionalAttributes?.['addressing_mode'] || groupData?.addressingMode || 'lid'
-				const groupSenderIdentity = groupAddressingMode === 'lid' && meLid ? meLid : meId
+				const groupSenderIdentity =
+					statusAddressing?.senderIdentity ?? (groupAddressingMode === 'lid' && meLid ? meLid : meId)
 
 				const { ciphertext, senderKeyDistributionMessage } = await signalRepository.encryptGroupMessage({
 					group: destinationJid,
