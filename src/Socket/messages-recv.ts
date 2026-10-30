@@ -68,6 +68,7 @@ import {
 import {
 	areJidsSameUser,
 	type BinaryNode,
+	type BinaryNodeAttributes,
 	binaryNodeToString,
 	getAllBinaryNodeChildren,
 	getBinaryNodeChild,
@@ -105,6 +106,72 @@ const ENFORCEMENT_TYPE_VALUES = new Set<string>(Object.values(ReachoutTimelockEn
 
 function isValidEnforcementType(value: string | undefined): value is ReachoutTimelockEnforcementType {
 	return typeof value === 'string' && ENFORCEMENT_TYPE_VALUES.has(value)
+}
+
+export type RetryReceiptParams = {
+	/** local id we assign to the retry receipt stanza itself */
+	msgId: string
+	/** 1-based retry attempt counter */
+	retryCount: number
+	/** full JID of the sender we failed to decrypt from. Must NOT be device-mangled. */
+	fromJid: string
+	/** id of the original message stanza we are asking to be resent */
+	originalId: string
+	/** timestamp of the original message stanza (optional) */
+	originalTimestamp?: string
+	/** encoded (big-endian) registration id of this device */
+	registration: Uint8Array
+	recipient?: string
+	participant?: string
+}
+
+/**
+ * Builds the `<receipt type="retry">` stanza Baileys sends when it fails to decrypt an
+ * incoming message. Kept pure + exported so the wire format can be unit-tested without a socket.
+ *
+ * Addressing notes (smax-invalid 479):
+ * - `to` must be the original sender's FULL JID (`attrs.from`). Re-encoding it through
+ *   `jidEncode(user, 's.whatsapp.net', device, 0)` mangles LID/ADJID addressing and the
+ *   server rejects the stanza with error 479.
+ * - The `<retry>` child must not carry the legacy `jid`/`type` attributes, nor a bogus
+ *   `error="0"`; WhatsApp only expects `count`, `id`, `t` and `v` here.
+ */
+export const buildRetryReceipt = (params: RetryReceiptParams): BinaryNode => {
+	const retryAttrs: BinaryNodeAttributes = {
+		count: params.retryCount.toString(),
+		id: params.originalId,
+		v: '1'
+	}
+	if (params.originalTimestamp !== undefined) {
+		retryAttrs.t = params.originalTimestamp
+	}
+
+	const receipt: BinaryNode = {
+		tag: 'receipt',
+		attrs: {
+			id: params.msgId,
+			type: 'retry',
+			to: params.fromJid
+		},
+		content: [
+			{ tag: 'retry', attrs: retryAttrs },
+			{
+				tag: 'registration',
+				attrs: {},
+				content: params.registration
+			}
+		]
+	}
+
+	if (params.recipient) {
+		receipt.attrs.recipient = params.recipient
+	}
+
+	if (params.participant) {
+		receipt.attrs.participant = params.participant
+	}
+
+	return receipt
 }
 
 export const makeMessagesRecvSocket = (config: SocketConfig) => {
@@ -651,40 +718,16 @@ export const makeMessagesRecvSocket = (config: SocketConfig) => {
 
 		const deviceIdentity = encodeSignedDeviceIdentity(account!, true)
 		await authState.keys.transaction(async () => {
-			const receipt: BinaryNode = {
-				tag: 'receipt',
-				attrs: {
-					id: msgId,
-					type: 'retry',
-					to: node.attrs.from!
-				},
-				content: [
-					{
-						tag: 'retry',
-						attrs: {
-							count: retryCount.toString(),
-							id: node.attrs.id!,
-							t: node.attrs.t!,
-							v: '1',
-							// ADD ERROR FIELD
-							error: '0'
-						}
-					},
-					{
-						tag: 'registration',
-						attrs: {},
-						content: encodeBigEndian(authState.creds.registrationId)
-					}
-				]
-			}
-
-			if (node.attrs.recipient) {
-				receipt.attrs.recipient = node.attrs.recipient
-			}
-
-			if (node.attrs.participant) {
-				receipt.attrs.participant = node.attrs.participant
-			}
+			const receipt = buildRetryReceipt({
+				msgId,
+				retryCount,
+				fromJid: node.attrs.from!,
+				originalId: node.attrs.id!,
+				originalTimestamp: node.attrs.t,
+				registration: encodeBigEndian(authState.creds.registrationId),
+				recipient: node.attrs.recipient,
+				participant: node.attrs.participant
+			})
 
 			if (retryCount > 1 || forceIncludeKeys || shouldRecreateSession) {
 				const { update, preKeys } = await getNextPreKeys(authState, 1)
@@ -710,7 +753,12 @@ export const makeMessagesRecvSocket = (config: SocketConfig) => {
 
 			await sendNode(receipt)
 
-			logger.info({ msgAttrs: node.attrs, retryCount }, 'sent retry receipt')
+			// Log the addressing we used so a future smax-invalid (479) ack can be correlated
+			// with the exact retry stanza that triggered it (stale device session / bad addressing).
+			logger.info(
+				{ msgAttrs: node.attrs, retryCount, to: receipt.attrs.to, recipient: receipt.attrs.recipient },
+				'sent retry receipt'
+			)
 		}, authState?.creds?.me?.id || 'sendRetryRequest')
 	}
 
@@ -1906,6 +1954,12 @@ export const makeMessagesRecvSocket = (config: SocketConfig) => {
 					{ msgId: attrs.id, from: attrs.from },
 					'smax-invalid (479): stanza rejected by server — likely stale device session or malformed addressing'
 				)
+				// A 479 on a message we resent in response to a retry receipt usually means the
+				// resend was addressed to the wrong identity. Drop the pending retry record so the
+				// next retry attempt starts from a clean session instead of replaying bad addressing.
+				if (attrs.id) {
+					messageRetryManager?.markRetryFailed(attrs.id)
+				}
 			} else if (isReachoutTimelocked) {
 				// user is temporarily restricted, fetch current restriction details
 				await fetchAccountReachoutTimelock().catch(err => logger.warn({ err }, 'failed to fetch reachout timelock'))
