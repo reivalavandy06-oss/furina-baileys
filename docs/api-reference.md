@@ -48,9 +48,17 @@ Daftar API publik yang tersedia.
 - `getFurinaResolver(sock)` — Get resolver instance
 - `resolver.resolveLID(pn)` — Phone → LID
 - `resolver.resolvePN(lid)` — LID → Phone
-- `resolver.searchByUsername(username)` — Search user
+- `resolver.searchByUsername(username)` — Search user (supports ORI, SMB/business, and LID-only accounts)
 - `resolver.fetchUserInfo(jid)` — Fetch user info
 - `isGroup(jid)`, `isLID(jid)`, `isNewsletter(jid)` — Type checks
+
+### USync Query
+
+- `new USyncQuery()` — Build a USync query
+- `.withUsernameProtocol()` / `.withContactProtocol()` / `.withLIDProtocol()` — Standard username lookup protocols
+- `.withBusinessProtocol()` — Fetch WhatsApp Business (SMB) metadata. The parsed entry exposes `{ verifiedName, verifiedLevel, profileTag, pnJid }` under the `business` protocol result.
+- `.withBotProfileProtocol()` — Fetch bot/AI profile data
+- `parseUSyncQueryResult(result)` — Parse a raw `<usync>` result into `{ list, sideList }`
 
 ### Utilities
 

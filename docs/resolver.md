@@ -57,6 +57,21 @@ const jid3 = await resolver.resolveTarget('6281234567890@s.whatsapp.net') // Alr
 console.log('Resolved:', jid1, jid2, jid3)
 ```
 
+### Business & Username Search (ORI / SMB / LID)
+
+`resolveTarget('@username')` (dan `searchByUsername`) kini mendukung **akun WhatsApp biasa (ORI) maupun akun bisnis (SMB)**, serta akun yang hanya ter-address lewat **LID**. Untuk akun bisnis, hasilnya juga membawa metadata bisnis seperti `verifiedName`, `verifiedLevel`, dan `profileTag` dari protokol USync `business`.
+
+```javascript
+const user = await resolver.searchByUsername('username')
+console.log(user?.isBusiness) // true untuk akun bisnis
+console.log(user?.verifiedName) // nama bisnis terverifikasi (jika ada)
+console.log(user?.verifiedLevel) // 'high' | 'low' (jika ada)
+console.log(user?.pn) // PN hasil pemetaan untuk akun LID-only (jika ada)
+```
+
+> [!WARNING]
+> Fitur ini membutuhkan akun pengirim dengan status 'Community/Contact-tier'. Jika akun baru/kena limit, hasilnya bisa NULL.
+
 ### Legacy Helpers
 
 ```javascript

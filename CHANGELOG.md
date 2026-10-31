@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.2.0-furina-rc.2 - 2026-10-31
+
+### Features
+- Add USyncBusinessProtocol to fetch business metadata (verifiedName, profileTag, pnJid).
+### Fixed
+- Improve searchByUsername parsing to support LID-only and SMB accounts.
+
 ## 1.2.0-furina-rc.1 - 2026-10-30
 
 ### Features
