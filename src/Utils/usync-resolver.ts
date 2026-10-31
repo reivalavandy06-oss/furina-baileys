@@ -12,6 +12,12 @@ export interface UserInfo {
 	pushname?: string | null
 	status?: string | null
 	isBusiness?: boolean | null
+	/** Verified business name (from the USync `business` protocol) */
+	verifiedName?: string | null
+	/** Business verification level, e.g. "high" / "low" */
+	verifiedLevel?: string | null
+	/** Business profile tag */
+	profileTag?: string | null
 }
 
 export class USyncResolver {
@@ -34,6 +40,7 @@ export class USyncResolver {
 				.withContactProtocol()
 				.withLIDProtocol()
 				.withBotProfileProtocol()
+				.withBusinessProtocol()
 			q.withUser(new USyncUser().withUsername(cleanUsername))
 
 			// this.sock.executeUSyncQuery is not in public TypeSocket type, cast to access
@@ -44,6 +51,9 @@ export class USyncResolver {
 			const list: any[] = Array.isArray(res?.list) ? res.list : []
 			const entry = list.find(e => e && (e.id || e.lid || e.username))
 			if (!entry) return null
+
+			// Raw server entry — handy when diagnosing optional business metadata.
+			this.sock?.logger?.debug?.({ entry }, 'USync raw entry')
 
 			return USyncResolver.mapUsernameEntry(entry, cleanUsername)
 		} catch (err) {
@@ -66,28 +76,41 @@ export class USyncResolver {
 		const lidFromProtocol = typeof entry.lid === 'string' && entry.lid.length > 0 ? entry.lid : null
 		const idIsLid = !!rawId && rawId.endsWith('@lid')
 
+		// Optional WS Business (SMB) metadata from the `business` protocol.
+		const business =
+			entry.business && typeof entry.business === 'object'
+				? (entry.business as {
+						verifiedName?: string | null
+						verifiedLevel?: string | null
+						profileTag?: string | null
+						pnJid?: string | null
+					})
+				: undefined
+		const businessPn = typeof business?.pnJid === 'string' && business.pnJid.length > 0 ? business.pnJid : null
+		const hasBusinessData = !!(business?.verifiedName || business?.verifiedLevel || business?.profileTag || businessPn)
+
 		const lid = idIsLid ? rawId : lidFromProtocol
-		const pn = rawId && !idIsLid ? rawId : null
-		// Prefer the explicit JID; fall back to the LID so LID-only business accounts
-		// still yield a usable JID instead of null.
-		const jid = rawId ?? lidFromProtocol ?? null
+		// Prefer the explicit JID; fall back to LID then to the business PN so
+		// LID-only/PN-only accounts still yield a usable JID instead of null.
+		const jid = rawId ?? lidFromProtocol ?? businessPn ?? null
+		const pn = rawId && !idIsLid ? rawId : businessPn && !businessPn.endsWith('@lid') ? businessPn : null
 
 		const botProfile = entry.bot
-		// `USyncContactProtocol` now surfaces the raw contact `type` as `contactType`
+		// `USyncContactProtocol` surfaces the raw contact `type` as `contactType`
 		// (e.g. "in" / "smb"), while `contact` stays boolean-compatible for other callers.
 		const smbMarker =
-			entry.smb === true ||
-			entry.business === true ||
-			entry.contactType === 'smb' ||
-			entry.contact === 'smb'
+			entry.smb === true || entry.business === true || entry.contactType === 'smb' || entry.contact === 'smb'
 
 		return {
 			jid,
 			lid,
 			pn,
 			username: (entry.username as string) || cleanUsername,
-			// Business ONLY if a bot profile or an SMB marker exists in the response.
-			isBusiness: botProfile || smbMarker ? true : null,
+			// Business if a bot profile, an SMB marker, or business metadata is present.
+			isBusiness: botProfile || smbMarker || hasBusinessData ? true : null,
+			verifiedName: business?.verifiedName ?? null,
+			verifiedLevel: business?.verifiedLevel ?? null,
+			profileTag: business?.profileTag ?? null,
 			pushname: null,
 			status: null
 		}

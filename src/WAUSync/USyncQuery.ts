@@ -2,6 +2,7 @@ import type { USyncQueryProtocol } from '../Types/USync'
 import { type BinaryNode, getBinaryNodeChild } from '../WABinary'
 import { USyncBotProfileProtocol } from './Protocols/UsyncBotProfileProtocol'
 import { USyncLIDProtocol } from './Protocols/UsyncLIDProtocol'
+import { USyncBusinessProtocol } from './Protocols/USyncBusinessProtocol'
 import {
 	USyncContactProtocol,
 	USyncDeviceProtocol,
@@ -140,6 +141,11 @@ export class USyncQuery {
 
 	withLIDProtocol() {
 		this.protocols.push(new USyncLIDProtocol())
+		return this
+	}
+
+	withBusinessProtocol() {
+		this.protocols.push(new USyncBusinessProtocol())
 		return this
 	}
 

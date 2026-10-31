@@ -203,4 +203,39 @@ describe('USyncResolver.searchByUsername', () => {
 		expect(parsed?.list).toHaveLength(1)
 		expect((parsed?.list[0] as any).id).toBe('onlyname')
 	})
+
+	test('surfaces WhatsApp Business metadata via the business protocol', async () => {
+		const raw = rawUsyncResult([
+			{
+				tag: 'user',
+				attrs: { lid: '999@lid' },
+				content: [
+					{ tag: 'username', attrs: {}, content: 'acmebiz' },
+					{ tag: 'lid', attrs: { val: '999@lid' } },
+					{
+						tag: 'business',
+						attrs: {},
+						content: [
+							{ tag: 'verified_name', attrs: {}, content: 'Acme Corp' },
+							{ tag: 'verified_level', attrs: {}, content: 'high' },
+							{ tag: 'profile_tag', attrs: {}, content: 'retail' },
+							{ tag: 'jid', attrs: {}, content: '999@s.whatsapp.net' }
+						]
+					}
+				]
+			}
+		])
+
+		const resolver = new USyncResolver(makeParsingSock(raw))
+		const result = await resolver.searchByUsername('acmebiz')
+
+		expect(result).not.toBeNull()
+		expect(result?.jid).toBe('999@lid')
+		expect(result?.lid).toBe('999@lid')
+		expect(result?.pn).toBe('999@s.whatsapp.net')
+		expect(result?.isBusiness).toBe(true)
+		expect(result?.verifiedName).toBe('Acme Corp')
+		expect(result?.verifiedLevel).toBe('high')
+		expect(result?.profileTag).toBe('retail')
+	})
 })
