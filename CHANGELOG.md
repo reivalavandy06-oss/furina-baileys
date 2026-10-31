@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.2.0-furina-rc.1 - 2026-10-30
+
+### Features
+- Enhance searchByUsername to fully support WhatsApp Business (SMB) and LID-only accounts via USync contactType.
+
 ## 1.1.3-furina-rc.1 - 2026-10-29
 
 ### Security
