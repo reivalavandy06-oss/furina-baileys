@@ -472,6 +472,58 @@ const imageUrl = (url: string): proto.IAIRichResponseImageURL => ({
 	sourceUrl: url
 })
 
+/** Protocols a rich-message URL may use. Anything else is rejected outright. */
+const SAFE_PROTOCOLS = new Set(['http:', 'https:'])
+
+/**
+ * Validates a URL before it is embedded in a rich message.
+ *
+ * Mitigation for CVE-2026-23866: rich responses (Reels/Image/Link) render
+ * attacker-controlled URLs on the client, so `javascript:`, `data:`, `file:`
+ * and other non-HTTP schemes must never reach the proto. Relative URLs (no
+ * protocol) are rejected too — they resolve against the renderer origin.
+ *
+ * Throws a plain `Error` with a `[furina-rich]` prefix; callers in builder
+ * methods rely on the throw to abort the message being composed.
+ */
+export function assertSafeUrl(url: string): string {
+	if (typeof url !== 'string' || url.trim().length === 0) {
+		throw new Error('[furina-rich] URL kosong/tidak valid')
+	}
+
+	const raw = url.trim()
+
+	// Reject whitespace/control chars: browsers strip them, so `java\nscript:`
+	// can otherwise slip past a naive scheme check.
+	if (/[\u0000-\u0020\u007f]/.test(raw)) {
+		throw new Error('[furina-rich] URL mengandung karakter kontrol/whitespace')
+	}
+
+	let parsed: URL
+	try {
+		parsed = new URL(raw)
+	} catch {
+		throw new Error(`[furina-rich] URL tidak valid atau tanpa protokol: ${raw}`)
+	}
+
+	if (!SAFE_PROTOCOLS.has(parsed.protocol.toLowerCase())) {
+		throw new Error(`[furina-rich] protokol tidak diizinkan: ${parsed.protocol}`)
+	}
+
+	// Return the original (trimmed) URL rather than the normalised form so
+	// callers keep byte-for-byte control of what they send.
+	return raw
+}
+
+export const isSafeUrl = (url: string): boolean => {
+	try {
+		assertSafeUrl(url)
+		return true
+	} catch {
+		return false
+	}
+}
+
 export class RichMessageBuilder {
 	protected blocks: RichContentBlock[] = []
 	protected suggestions: string[] = []
@@ -504,28 +556,42 @@ export class RichMessageBuilder {
 		return this
 	}
 
+	/**
+	 * LaTeX rendered through a remote image service (CodeCogs). Kept separate
+	 * from addLatex so callers that only need the expression don't hit the
+	 * network renderer.
+	 */
+	addLatexInlineImage(formula: string): this {
+		this.blocks.push({ type: 'latex', formula })
+		this.blocks.push({ type: 'image', url: buildLatexImageUrl(formula), caption: formula })
+		return this
+	}
+
 	addImage(url: string, caption: string): this {
-		this.blocks.push({ type: 'image', url, caption })
+		this.blocks.push({ type: 'image', url: assertSafeUrl(url), caption })
 		return this
 	}
 
 	addInlineImage(url: string, caption = ''): this {
-		this.blocks.push({ type: 'image', url, caption })
+		this.blocks.push({ type: 'image', url: assertSafeUrl(url), caption })
 		return this
 	}
 
 	addGridImage(urls: string[]): this {
-		this.blocks.push({ type: 'gridImage', urls })
+		this.blocks.push({ type: 'gridImage', urls: urls.map(assertSafeUrl) })
 		return this
 	}
 
 	addReels(items: { url: string; caption?: string }[]): this {
-		this.blocks.push({ type: 'reels', items })
+		this.blocks.push({
+			type: 'reels',
+			items: items.map(item => ({ ...item, url: assertSafeUrl(item.url) }))
+		})
 		return this
 	}
 
 	addVideo(url: string, caption?: string): this {
-		this.blocks.push({ type: 'video', url, caption })
+		this.blocks.push({ type: 'video', url: assertSafeUrl(url), caption })
 		return this
 	}
 
@@ -537,7 +603,7 @@ export class RichMessageBuilder {
 	}
 
 	addLink(url: string, title: string): this {
-		this.blocks.push({ type: 'link', url, title })
+		this.blocks.push({ type: 'link', url: assertSafeUrl(url), title })
 		return this
 	}
 
@@ -855,8 +921,23 @@ export class ORich extends RichMessageBuilder {
 	private metadata: Partial<proto.IBotMetadata> = {}
 	private extras: Record<string, unknown> = {}
 
-	addSource(...sources: ORichSource[]): this {
-		this.sources.push(...sources)
+	addSource(...sources: ORichSource[]): this
+	addSource(url: string, title: string): this
+	addSource(...args: (string | ORichSource)[]): this {
+		// Accept both `addSource({ url, title })` and `addSource(url, title)`.
+		const sources: ORichSource[] =
+			typeof args[0] === 'string'
+				? [{ url: args[0], title: typeof args[1] === 'string' ? args[1] : '' }]
+				: (args as ORichSource[])
+
+		this.sources.push(
+			...sources.map(source => ({
+				...source,
+				url: assertSafeUrl(source.url),
+				thumbnailUrl: source.thumbnailUrl ? assertSafeUrl(source.thumbnailUrl) : undefined,
+				faviconUrl: source.faviconUrl ? assertSafeUrl(source.faviconUrl) : undefined
+			}))
+		)
 		return this
 	}
 
@@ -1058,6 +1139,28 @@ export function sendLatexImage(
 	return sendRichMessage(sock, jid, builder, { ...(opts ?? {}), quoted })
 }
 
+export function sendLatex(
+	sock: FurinaSocket,
+	jid: string,
+	formula: string,
+	quoted?: WAMessage,
+	opts?: RichMessageSendOptions
+): Promise<WAMessage> {
+	const builder = new RichMessageBuilder().addLatex(formula)
+	return sendRichMessage(sock, jid, builder, { ...(opts ?? {}), quoted })
+}
+
+export function sendLatexInlineImage(
+	sock: FurinaSocket,
+	jid: string,
+	formula: string,
+	quoted?: WAMessage,
+	opts?: RichMessageSendOptions
+): Promise<WAMessage> {
+	const builder = new RichMessageBuilder().addLatexInlineImage(formula)
+	return sendRichMessage(sock, jid, builder, { ...(opts ?? {}), quoted })
+}
+
 export function sendMarkdown(
 	sock: FurinaSocket,
 	jid: string,
@@ -1078,6 +1181,19 @@ export function generateUnifiedContent(payload: UnifiedPayload): proto.IMessage 
 			unifiedResponse: { data: encodeUnified(payload) }
 		}
 	}
+}
+
+/**
+ * Serialises the unified response payload embedded in a message (or a builder
+ * that produces one) back to its JSON string. Handy for logging/round-tripping
+ * V2 content. Returns an empty string when there is no unified payload.
+ */
+export function captureUnifiedResponse(source: proto.IMessage | RichMessageBuilder): string {
+	const content = source instanceof RichMessageBuilder ? source.build() : source
+	const data = getRichResponse(content)?.unifiedResponse?.data
+	if (!data || data.length === 0) return ''
+
+	return new TextDecoder().decode(data)
 }
 
 export async function sendUnifiedResponse(

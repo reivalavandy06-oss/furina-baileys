@@ -14,6 +14,11 @@ import {
 	sendMarkdown,
 	sendRichHtml,
 	sendRichMessage,
+	sendLatex,
+	sendLatexInlineImage,
+	captureUnifiedResponse,
+	assertSafeUrl,
+	isSafeUrl,
 	sendStatusMentions,
 	sendTable,
 	sendTableV2,
@@ -422,13 +427,15 @@ describe('readRichMessage', () => {
 
 describe('RichMessageBuilder Phase 3', () => {
 	it('addGridImage emits GRID_IMAGE with all urls', () => {
-		const msg = new RichMessageBuilder().addGridImage(['a.png', 'b.png', 'c.png']).build()
+		const msg = new RichMessageBuilder()
+			.addGridImage(['https://cdn/a.png', 'https://cdn/b.png', 'https://cdn/c.png'])
+			.build()
 		const block = sub(msg)
 
 		expect(block?.messageType).toBe(proto.AIRichResponseSubMessageType.AI_RICH_RESPONSE_GRID_IMAGE)
 		expect(block?.gridImageMetadata?.imageUrls).toHaveLength(3)
-		expect(block?.gridImageMetadata?.gridImageUrl?.imageHighResUrl).toBe('a.png')
-		expect(block?.gridImageMetadata?.imageUrls?.[2]?.sourceUrl).toBe('c.png')
+		expect(block?.gridImageMetadata?.gridImageUrl?.imageHighResUrl).toBe('https://cdn/a.png')
+		expect(block?.gridImageMetadata?.imageUrls?.[2]?.sourceUrl).toBe('https://cdn/c.png')
 	})
 
 	it('addGridImage handles an empty url list', () => {
@@ -440,13 +447,13 @@ describe('RichMessageBuilder Phase 3', () => {
 	})
 
 	it('addInlineImage emits INLINE_IMAGE with optional caption', () => {
-		const withCaption = new RichMessageBuilder().addInlineImage('x.png', 'cap').build()
-		const withoutCaption = new RichMessageBuilder().addInlineImage('y.png').build()
+		const withCaption = new RichMessageBuilder().addInlineImage('https://cdn/x.png', 'cap').build()
+		const withoutCaption = new RichMessageBuilder().addInlineImage('https://cdn/y.png').build()
 
 		expect(sub(withCaption)?.messageType).toBe(proto.AIRichResponseSubMessageType.AI_RICH_RESPONSE_INLINE_IMAGE)
 		expect(sub(withCaption)?.imageMetadata?.imageText).toBe('cap')
 		expect(sub(withoutCaption)?.imageMetadata?.imageText).toBe('')
-		expect(sub(withoutCaption)?.imageMetadata?.imageUrl?.imageHighResUrl).toBe('y.png')
+		expect(sub(withoutCaption)?.imageMetadata?.imageUrl?.imageHighResUrl).toBe('https://cdn/y.png')
 	})
 
 	it('addReels emits CONTENT_ITEMS with reel items', () => {
@@ -634,7 +641,13 @@ describe('ORich builder', () => {
 
 	it('addProduct renders image + link and records extras', () => {
 		const msg = new ORich()
-			.addProduct({ title: 'Kopi', price: 25000, currency: 'IDR', url: 'https://shop/1', thumbnailUrl: 'p.png' })
+			.addProduct({
+				title: 'Kopi',
+				price: 25000,
+				currency: 'IDR',
+				url: 'https://shop/1',
+				thumbnailUrl: 'https://cdn/p.png'
+			})
 			.build()
 
 		const subs = msg.richResponseMessage?.submessages ?? []
@@ -732,9 +745,9 @@ describe('sendStatusMentions', () => {
 
 describe('readRichMessage Phase 3', () => {
 	it('parses GRID_IMAGE blocks', () => {
-		const msg = new RichMessageBuilder().addGridImage(['a', 'b']).build()
+		const msg = new RichMessageBuilder().addGridImage(['https://cdn/a', 'https://cdn/b']).build()
 		const parsed = readRichMessage(msg)
-		expect(parsed?.blocks[0]).toEqual({ type: 'gridImage', urls: ['a', 'b'] })
+		expect(parsed?.blocks[0]).toEqual({ type: 'gridImage', urls: ['https://cdn/a', 'https://cdn/b'] })
 	})
 
 	it('parses CONTENT_ITEMS reels', () => {
@@ -786,5 +799,216 @@ describe('readRichMessage Phase 3', () => {
 	it('ignores JSON payloads without version 2', () => {
 		const msg = new RichMessageBuilder().addText('t').setUnifiedResponse('{"version":1}').build()
 		expect(readRichMessage(msg)?.unified).toBeUndefined()
+	})
+})
+
+describe('assertSafeUrl (CVE-2026-23866 mitigation)', () => {
+	it('accepts http and https urls', () => {
+		expect(assertSafeUrl('https://example.com/a.png')).toBe('https://example.com/a.png')
+		expect(assertSafeUrl('http://example.com')).toBe('http://example.com')
+		expect(isSafeUrl('https://example.com/x?y=1#z')).toBe(true)
+	})
+
+	it('trims surrounding whitespace before returning', () => {
+		expect(assertSafeUrl('  https://example.com  ')).toBe('https://example.com')
+	})
+
+	it('rejects javascript: urls', () => {
+		expect(() => assertSafeUrl('javascript:alert(1)')).toThrow(/protokol tidak diizinkan/)
+		expect(isSafeUrl('javascript:alert(1)')).toBe(false)
+	})
+
+	it('rejects data: urls', () => {
+		expect(() => assertSafeUrl('data:text/html,<script>alert(1)</script>')).toThrow(/protokol tidak diizinkan/)
+		expect(isSafeUrl('data:image/png;base64,AAAA')).toBe(false)
+	})
+
+	it('rejects file: urls', () => {
+		expect(() => assertSafeUrl('file:///etc/passwd')).toThrow(/protokol tidak diizinkan/)
+	})
+
+	it('rejects protocol-relative and protocol-less urls', () => {
+		expect(() => assertSafeUrl('//evil.com/x')).toThrow(/tidak valid atau tanpa protokol/)
+		expect(() => assertSafeUrl('example.com/x')).toThrow(/tidak valid atau tanpa protokol/)
+		expect(() => assertSafeUrl('/relative/path.png')).toThrow(/tidak valid atau tanpa protokol/)
+	})
+
+	it('rejects empty and non-string input', () => {
+		expect(() => assertSafeUrl('')).toThrow(/kosong/)
+		expect(() => assertSafeUrl('   ')).toThrow(/kosong/)
+		expect(() => assertSafeUrl(undefined as unknown as string)).toThrow(/kosong/)
+	})
+
+	it('rejects urls with control characters or embedded whitespace', () => {
+		expect(() => assertSafeUrl('java\nscript:alert(1)')).toThrow(/karakter kontrol/)
+		expect(() => assertSafeUrl('https://exa mple.com')).toThrow(/karakter kontrol/)
+		expect(() => assertSafeUrl('https://example.com/\u0000')).toThrow(/karakter kontrol/)
+	})
+
+	it('rejects other non-http schemes', () => {
+		expect(() => assertSafeUrl('ftp://example.com/x')).toThrow(/protokol tidak diizinkan/)
+		expect(() => assertSafeUrl('blob:https://example.com/uuid')).toThrow(/protokol tidak diizinkan/)
+		expect(() => assertSafeUrl('vbscript:msgbox(1)')).toThrow(/protokol tidak diizinkan/)
+	})
+})
+
+describe('builder URL validation wiring', () => {
+	it('addImage rejects dangerous urls', () => {
+		expect(() => new RichMessageBuilder().addImage('javascript:alert(1)', 'x')).toThrow(/protokol tidak diizinkan/)
+	})
+
+	it('addInlineImage rejects dangerous urls', () => {
+		expect(() => new RichMessageBuilder().addInlineImage('data:text/html,x')).toThrow(/protokol tidak diizinkan/)
+	})
+
+	it('addGridImage rejects when any url is unsafe', () => {
+		expect(() => new RichMessageBuilder().addGridImage(['https://ok', 'file:///etc/passwd'])).toThrow(
+			/protokol tidak diizinkan/
+		)
+	})
+
+	it('addReels rejects dangerous urls', () => {
+		expect(() => new RichMessageBuilder().addReels([{ url: 'javascript:alert(1)' }])).toThrow(
+			/protokol tidak diizinkan/
+		)
+	})
+
+	it('addVideo rejects dangerous urls', () => {
+		expect(() => new RichMessageBuilder().addVideo('data:video/mp4;base64,AAAA')).toThrow(/protokol tidak diizinkan/)
+	})
+
+	it('addLink rejects dangerous urls', () => {
+		expect(() => new RichMessageBuilder().addLink('file:///etc/passwd', 'x')).toThrow(/protokol tidak diizinkan/)
+	})
+
+	it('ORich.addSource rejects dangerous urls', () => {
+		expect(() => new ORich().addSource({ title: 'x', url: 'javascript:alert(1)' })).toThrow(/protokol tidak diizinkan/)
+	})
+
+	it('ORich.addSource validates thumbnail and favicon urls', () => {
+		expect(() => new ORich().addSource({ title: 'x', url: 'https://ok', thumbnailUrl: 'data:text/html,x' })).toThrow(
+			/protokol tidak diizinkan/
+		)
+		expect(() => new ORich().addSource({ title: 'x', url: 'https://ok', faviconUrl: 'javascript:alert(1)' })).toThrow(
+			/protokol tidak diizinkan/
+		)
+	})
+
+	it('ORich.addProduct rejects a dangerous product url', () => {
+		expect(() => new ORich().addProduct({ title: 'x', url: 'javascript:alert(1)' })).toThrow(/protokol tidak diizinkan/)
+	})
+
+	it('ORich.addPost rejects a dangerous post url', () => {
+		expect(() => new ORich().addPost({ title: 'x', url: 'javascript:alert(1)' })).toThrow(/protokol tidak diizinkan/)
+	})
+
+	it('ORich.addWidget rejects a dangerous widget url', () => {
+		expect(() => new ORich().addWidget({ title: 'x', url: 'javascript:alert(1)' })).toThrow(/protokol tidak diizinkan/)
+	})
+
+	it('ORich.addFooterAction rejects a dangerous footer url', () => {
+		expect(() => new ORich().addFooterAction({ label: 'x', url: 'javascript:alert(1)' })).toThrow(
+			/protokol tidak diizinkan/
+		)
+	})
+})
+
+describe('LaTeX helpers (Phase 4)', () => {
+	it('addLatexInlineImage emits latex + rendered image', () => {
+		const msg = new RichMessageBuilder().addLatexInlineImage('a^2 + b^2').build()
+		const subs = msg.richResponseMessage?.submessages ?? []
+
+		expect(subs).toHaveLength(2)
+		expect(subs[0]?.messageType).toBe(proto.AIRichResponseSubMessageType.AI_RICH_RESPONSE_LATEX)
+		expect(subs[0]?.latexMetadata?.text).toBe('a^2 + b^2')
+		expect(subs[1]?.messageType).toBe(proto.AIRichResponseSubMessageType.AI_RICH_RESPONSE_INLINE_IMAGE)
+		expect(subs[1]?.imageMetadata?.imageUrl?.imageHighResUrl).toBe(buildLatexImageUrl('a^2 + b^2'))
+	})
+
+	it('addLatex only emits the expression (no image)', () => {
+		const msg = new RichMessageBuilder().addLatex('x = 1').build()
+		const subs = msg.richResponseMessage?.submessages ?? []
+		expect(subs).toHaveLength(1)
+		expect(subs[0]?.messageType).toBe(proto.AIRichResponseSubMessageType.AI_RICH_RESPONSE_LATEX)
+	})
+
+	it('sendLatex relays only the latex block', async () => {
+		const { sock, calls } = makeMockSock()
+		await sendLatex(sock, '6281234567890@s.whatsapp.net', 'E = mc^2')
+
+		const subs = calls[0]!.content.richResponseMessage?.submessages ?? []
+		expect(subs).toHaveLength(1)
+		expect(subs[0]?.latexMetadata?.text).toBe('E = mc^2')
+	})
+
+	it('sendLatexInlineImage relays latex + image', async () => {
+		const { sock, calls } = makeMockSock()
+		await sendLatexInlineImage(sock, '6281234567890:1@s.whatsapp.net', 'y = mx + b', undefined, {})
+
+		expect(calls[0]!.jid).toBe('6281234567890@s.whatsapp.net')
+		const subs = calls[0]!.content.richResponseMessage?.submessages ?? []
+		expect(subs).toHaveLength(2)
+		expect(subs[1]?.imageMetadata?.imageUrl?.imageHighResUrl).toBe(buildLatexImageUrl('y = mx + b'))
+	})
+
+	it('sendLatexInlineImage injects quoted context', async () => {
+		const { sock, calls } = makeMockSock()
+		const quoted = { key: { id: 'Q', remoteJid: '628@s.whatsapp.net', fromMe: false } } as WAMessage
+		await sendLatexInlineImage(sock, '6281234567890@s.whatsapp.net', 'z', quoted)
+
+		expect(calls[0]!.content.richResponseMessage?.contextInfo?.stanzaId).toBe('Q')
+	})
+})
+
+describe('captureUnifiedResponse', () => {
+	it('returns "" when there is no unified payload', () => {
+		expect(captureUnifiedResponse(new RichMessageBuilder().addText('x').build())).toBe('')
+		expect(captureUnifiedResponse(new RichMessageBuilder())).toBe('')
+	})
+
+	it('serialises the unified payload from a message', () => {
+		const msg = new RichMessageBuilder().addText('x').setUnifiedResponse({ version: 2, html: '<b>x</b>' }).build()
+
+		expect(JSON.parse(captureUnifiedResponse(msg))).toEqual({ version: 2, html: '<b>x</b>' })
+	})
+
+	it('accepts a builder and unwraps botForwarded messages', () => {
+		const builder = new RichMessageBuilder()
+			.addText('x')
+			.wrapInBotForwarded()
+			.setUnifiedResponse({ version: 2, sections: [{ type: 'text', text: 'a' }] })
+
+		expect(JSON.parse(captureUnifiedResponse(builder))).toEqual({
+			version: 2,
+			sections: [{ type: 'text', text: 'a' }]
+		})
+	})
+
+	it('round-trips parsed unified payloads', () => {
+		const builder = new ORich().addText('t').addTip('hint')
+		const json = captureUnifiedResponse(builder)
+		expect(JSON.parse(json).extras.tips[0].text).toBe('hint')
+	})
+})
+
+describe('ORich.addSource overloads', () => {
+	it('accepts (url, title)', () => {
+		const msg = new ORich().addSource('https://example.com/src', 'Example').build()
+		const sources = msg.messageContextInfo?.botMetadata?.richResponseSourcesMetadata?.sources
+		expect(sources).toHaveLength(1)
+		expect(sources?.[0]?.sourceTitle).toBe('Example')
+		expect(sources?.[0]?.sourceProviderUrl).toBe('https://example.com/src')
+	})
+
+	it('still accepts an object list', () => {
+		const msg = new ORich().addSource({ title: 'A', url: 'https://a' }, { title: 'B', url: 'https://b' }).build()
+		expect(msg.messageContextInfo?.botMetadata?.richResponseSourcesMetadata?.sources).toHaveLength(2)
+	})
+
+	it('maps provider to the proto enum', () => {
+		const msg = new ORich().addSource({ title: 'G', url: 'https://g', provider: 'GOOGLE' }).build()
+		expect(msg.messageContextInfo?.botMetadata?.richResponseSourcesMetadata?.sources?.[0]?.provider).toBe(
+			proto.BotSourcesMetadata.BotSourceItem.SourceProvider.GOOGLE
+		)
 	})
 })
