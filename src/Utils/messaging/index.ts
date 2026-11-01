@@ -4,16 +4,41 @@ export * from './carousel'
 export * from './button-tracker'
 export {
 	RichMessageBuilder,
+	ORich,
 	sendRichMessage,
 	sendTable,
 	sendCodeBlock,
 	sendLatexImage,
 	sendMarkdown,
-	readRichMessage,
+	sendUnifiedResponse,
+	sendTableV2,
+	sendCodeBlockV2,
+	sendLinkV2,
+	sendRichHtml,
+	sendStatusMentions,
+	generateUnifiedContent,
+	generateRichHtmlContent,
+	tokenizeCode,
+	CODE_HIGHLIGHT_TO_PROTO,
 	buildLatexImageUrl,
+	readRichMessage,
 	// `sendList` already exists in senders.ts (interactive list message).
 	// The rich-message list helper is re-exported under a distinct name to
 	// avoid a public-API collision / breaking change.
 	sendList as sendRichList
 } from './rich-message'
-export type { RichMessageSendOptions, ParsedRichBlock, ParsedRichMessage } from './rich-message'
+export type {
+	RichMessageSendOptions,
+	ParsedRichBlock,
+	ParsedRichMessage,
+	UnifiedSection,
+	UnifiedPayload,
+	CodeHighlightType,
+	CodeToken,
+	ORichSource,
+	ORichProduct,
+	ORichPost,
+	ORichWidget,
+	ORichFooterAction,
+	ORichTipOptions
+} from './rich-message'

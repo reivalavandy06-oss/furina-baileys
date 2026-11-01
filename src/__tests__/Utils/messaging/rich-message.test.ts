@@ -1,14 +1,24 @@
 import { proto } from '../../../../WAProto'
 import {
+	ORich,
 	RichMessageBuilder,
 	buildLatexImageUrl,
+	generateRichHtmlContent,
+	generateUnifiedContent,
 	readRichMessage,
 	sendCodeBlock,
+	sendCodeBlockV2,
 	sendLatexImage,
+	sendLinkV2,
 	sendList,
 	sendMarkdown,
+	sendRichHtml,
 	sendRichMessage,
-	sendTable
+	sendStatusMentions,
+	sendTable,
+	sendTableV2,
+	sendUnifiedResponse,
+	tokenizeCode
 } from '../../../Utils/messaging/rich-message'
 import type { FurinaSocket } from '../../../Utils/messaging/types'
 import type { WAMessage } from '../../../Types'
@@ -24,6 +34,8 @@ const makeMockSock = () => {
 
 	return { sock, calls }
 }
+
+const decodeText = (data?: Uint8Array | null) => new TextDecoder().decode(data ?? new Uint8Array())
 
 const sub = (msg: proto.IMessage, index = 0) => msg.richResponseMessage?.submessages?.[index]
 
@@ -61,7 +73,13 @@ describe('RichMessageBuilder', () => {
 
 	it('should add table with headers correctly', () => {
 		const builder = new RichMessageBuilder()
-		builder.addTable(['Name', 'Age'], [['Alice', '30'], ['Bob', '25']])
+		builder.addTable(
+			['Name', 'Age'],
+			[
+				['Alice', '30'],
+				['Bob', '25']
+			]
+		)
 		const msg = builder.build()
 
 		const block = sub(msg)
@@ -386,8 +404,7 @@ describe('readRichMessage', () => {
 				messageType: proto.AIRichResponseMessageType.AI_RICH_RESPONSE_TYPE_STANDARD,
 				submessages: [
 					{
-						messageType: proto.AIRichResponseSubMessageType.AI_RICH_RESPONSE_GRID_IMAGE,
-						gridImageMetadata: { imageUrls: [] }
+						messageType: proto.AIRichResponseSubMessageType.AI_RICH_RESPONSE_UNKNOWN
 					}
 				]
 			}
@@ -400,5 +417,374 @@ describe('readRichMessage', () => {
 	it('joins multiple text blocks into the text field', () => {
 		const builder = new RichMessageBuilder().addText('one').addText('two')
 		expect(readRichMessage(builder.build())?.text).toBe('one\n\ntwo')
+	})
+})
+
+describe('RichMessageBuilder Phase 3', () => {
+	it('addGridImage emits GRID_IMAGE with all urls', () => {
+		const msg = new RichMessageBuilder().addGridImage(['a.png', 'b.png', 'c.png']).build()
+		const block = sub(msg)
+
+		expect(block?.messageType).toBe(proto.AIRichResponseSubMessageType.AI_RICH_RESPONSE_GRID_IMAGE)
+		expect(block?.gridImageMetadata?.imageUrls).toHaveLength(3)
+		expect(block?.gridImageMetadata?.gridImageUrl?.imageHighResUrl).toBe('a.png')
+		expect(block?.gridImageMetadata?.imageUrls?.[2]?.sourceUrl).toBe('c.png')
+	})
+
+	it('addGridImage handles an empty url list', () => {
+		const msg = new RichMessageBuilder().addGridImage([]).build()
+		const block = sub(msg)
+
+		expect(block?.gridImageMetadata?.imageUrls).toEqual([])
+		expect(block?.gridImageMetadata?.gridImageUrl).toBeUndefined()
+	})
+
+	it('addInlineImage emits INLINE_IMAGE with optional caption', () => {
+		const withCaption = new RichMessageBuilder().addInlineImage('x.png', 'cap').build()
+		const withoutCaption = new RichMessageBuilder().addInlineImage('y.png').build()
+
+		expect(sub(withCaption)?.messageType).toBe(proto.AIRichResponseSubMessageType.AI_RICH_RESPONSE_INLINE_IMAGE)
+		expect(sub(withCaption)?.imageMetadata?.imageText).toBe('cap')
+		expect(sub(withoutCaption)?.imageMetadata?.imageText).toBe('')
+		expect(sub(withoutCaption)?.imageMetadata?.imageUrl?.imageHighResUrl).toBe('y.png')
+	})
+
+	it('addReels emits CONTENT_ITEMS with reel items', () => {
+		const reels = [{ url: 'https://v/1.mp4', caption: 'first' }, { url: 'https://v/2.mp4' }]
+		const msg = new RichMessageBuilder().addReels(reels).build()
+		const block = sub(msg)
+
+		expect(block?.messageType).toBe(proto.AIRichResponseSubMessageType.AI_RICH_RESPONSE_CONTENT_ITEMS)
+		expect(block?.contentItemsMetadata?.contentType).toBe(proto.AIRichResponseContentItemsMetadata.ContentType.DEFAULT)
+		expect(block?.contentItemsMetadata?.itemsMetadata).toHaveLength(2)
+		expect(block?.contentItemsMetadata?.itemsMetadata?.[0]?.reelItem?.videoUrl).toBe('https://v/1.mp4')
+		expect(block?.contentItemsMetadata?.itemsMetadata?.[0]?.reelItem?.title).toBe('first')
+		expect(block?.contentItemsMetadata?.itemsMetadata?.[1]?.reelItem?.title).toBe('')
+	})
+
+	it('addVideo emits a DYNAMIC block plus caption text', () => {
+		const msg = new RichMessageBuilder().addVideo('https://v/g.mp4', 'look').build()
+
+		expect(sub(msg, 0)?.messageType).toBe(proto.AIRichResponseSubMessageType.AI_RICH_RESPONSE_DYNAMIC)
+		expect(sub(msg, 0)?.dynamicMetadata?.url).toBe('https://v/g.mp4')
+		expect(sub(msg, 0)?.dynamicMetadata?.type).toBe(
+			proto.AIRichResponseDynamicMetadata.AIRichResponseDynamicMetadataType.AI_RICH_RESPONSE_DYNAMIC_METADATA_TYPE_GIF
+		)
+		expect(sub(msg, 1)?.messageText).toBe('look')
+	})
+
+	it('setUnifiedResponse accepts a V2 payload object', () => {
+		const msg = new RichMessageBuilder().addText('t').setUnifiedResponse({ version: 2, sections: [] }).build()
+		const decoded = JSON.parse(decodeText(msg.richResponseMessage?.unifiedResponse?.data))
+
+		expect(decoded).toEqual({ version: 2, sections: [] })
+	})
+})
+
+describe('tokenizeCode', () => {
+	const types = (tokens: { type: string }[]) => tokens.map(token => token.type)
+
+	it('round-trips the original source', () => {
+		const code = 'const x = 42 // note\nconsole.log("hi")'
+		expect(
+			tokenizeCode(code, 'javascript')
+				.map(token => token.value)
+				.join('')
+		).toBe(code)
+	})
+
+	it('classifies keywords, strings, numbers, comments and methods', () => {
+		const tokens = tokenizeCode('const a = foo(1, "s") // c', 'javascript')
+		const byType = new Map<string, string[]>()
+
+		for (const token of tokens) {
+			byType.set(token.type, [...(byType.get(token.type) ?? []), token.value])
+		}
+
+		expect(byType.get('KEYWORD')).toEqual(['const'])
+		expect(byType.get('METHOD')).toEqual(['foo'])
+		expect(byType.get('NUMBER')).toEqual(['1'])
+		expect(byType.get('STRING')).toEqual(['"s"'])
+		expect(byType.get('COMMENT')).toEqual(['// c'])
+	})
+
+	it('supports hash comments for python', () => {
+		const tokens = tokenizeCode('def f():\n    return 1  # done', 'python')
+		expect(tokens.find(token => token.type === 'COMMENT')?.value).toBe('# done')
+		expect(tokens.find(token => token.value === 'def')?.type).toBe('KEYWORD')
+	})
+
+	it('does not treat hash as a comment in javascript', () => {
+		const tokens = tokenizeCode('const t = "#notcomment"', 'javascript')
+		expect(tokens.some(token => token.type === 'COMMENT')).toBe(false)
+		expect(tokens.find(token => token.value === '"#notcomment"')?.type).toBe('STRING')
+	})
+
+	it('handles block comments', () => {
+		const tokens = tokenizeCode('/* multi\nline */ let y = 2', 'javascript')
+		expect(tokens[0]?.type).toBe('COMMENT')
+		expect(tokens[0]?.value).toBe('/* multi\nline */')
+		expect(tokens.find(token => token.value === 'let')?.type).toBe('KEYWORD')
+	})
+
+	it('returns only DEFAULT tokens for plain text', () => {
+		const tokens = tokenizeCode('hello world', 'text')
+		expect(new Set(types(tokens))).toEqual(new Set(['DEFAULT']))
+	})
+})
+
+describe('V2 unified senders', () => {
+	it('sendUnifiedResponse writes a JSON v2 payload', async () => {
+		const { sock, calls } = makeMockSock()
+		await sendUnifiedResponse(sock, '6281234567890@s.whatsapp.net', {
+			version: 2,
+			sections: [{ type: 'text', text: 'hi' }]
+		})
+
+		const data = calls[0]!.content.richResponseMessage?.unifiedResponse?.data
+		expect(JSON.parse(decodeText(data))).toEqual({
+			version: 2,
+			sections: [{ type: 'text', text: 'hi' }]
+		})
+	})
+
+	it('sendUnifiedResponse normalizes the jid and quotes', async () => {
+		const { sock, calls } = makeMockSock()
+		const quoted = { key: { id: 'Q1', remoteJid: '628@s.whatsapp.net', fromMe: false } } as WAMessage
+		await sendUnifiedResponse(sock, '6281234567890:3@s.whatsapp.net', 'raw-body', { quoted })
+
+		expect(calls[0]!.jid).toBe('6281234567890@s.whatsapp.net')
+		expect(calls[0]!.content.richResponseMessage?.contextInfo?.stanzaId).toBe('Q1')
+	})
+
+	it('sendTableV2 emits both submessages and a v2 section', async () => {
+		const { sock, calls } = makeMockSock()
+		await sendTableV2(sock, '628@s.whatsapp.net', 'T', ['H'], [['1']])
+
+		const rich = calls[0]!.content.richResponseMessage
+		expect(rich?.submessages).toHaveLength(2)
+		const unified = JSON.parse(decodeText(rich?.unifiedResponse?.data))
+		expect(unified.sections[0]).toEqual({ type: 'table', title: 'T', headers: ['H'], rows: [['1']] })
+	})
+
+	it('sendCodeBlockV2 emits a v2 code section', async () => {
+		const { sock, calls } = makeMockSock()
+		await sendCodeBlockV2(sock, '628@s.whatsapp.net', 'let a = 1', 'ts')
+
+		const unified = JSON.parse(decodeText(calls[0]!.content.richResponseMessage?.unifiedResponse?.data))
+		expect(unified.sections[0]).toEqual({ type: 'code', language: 'ts', code: 'let a = 1' })
+	})
+
+	it('sendLinkV2 emits a v2 link section', async () => {
+		const { sock, calls } = makeMockSock()
+		await sendLinkV2(sock, '628@s.whatsapp.net', 'https://a', 'A')
+
+		const unified = JSON.parse(decodeText(calls[0]!.content.richResponseMessage?.unifiedResponse?.data))
+		expect(unified.sections[0]).toEqual({ type: 'link', url: 'https://a', title: 'A' })
+	})
+
+	it('generateUnifiedContent returns a richResponseMessage envelope', () => {
+		const content = generateUnifiedContent({ version: 2, html: '<b>x</b>' })
+		expect(content.richResponseMessage?.messageType).toBe(
+			proto.AIRichResponseMessageType.AI_RICH_RESPONSE_TYPE_STANDARD
+		)
+	})
+})
+
+describe('rich HTML', () => {
+	it('generateRichHtmlContent encodes an html v2 payload', () => {
+		const content = generateRichHtmlContent('<h1>hi</h1>')
+		const decoded = JSON.parse(decodeText(content.richResponseMessage?.unifiedResponse?.data))
+		expect(decoded).toEqual({ version: 2, type: 'html', html: '<h1>hi</h1>' })
+	})
+
+	it('sendRichHtml relays to the normalized jid', async () => {
+		const { sock, calls } = makeMockSock()
+		await sendRichHtml(sock, '6281234567890:9@s.whatsapp.net', '<p>x</p>')
+
+		expect(calls[0]!.jid).toBe('6281234567890@s.whatsapp.net')
+		const decoded = JSON.parse(decodeText(calls[0]!.content.richResponseMessage?.unifiedResponse?.data))
+		expect(decoded.html).toBe('<p>x</p>')
+	})
+})
+
+describe('ORich builder', () => {
+	it('is a RichMessageBuilder subclass', () => {
+		expect(new ORich()).toBeInstanceOf(RichMessageBuilder)
+	})
+
+	it('addSource writes richResponseSourcesMetadata', () => {
+		const msg = new ORich()
+			.addText('answer')
+			.addSource({ title: 'Wikipedia', url: 'https://w', citationNumber: 1 })
+			.build()
+
+		const sources = msg.messageContextInfo?.botMetadata?.richResponseSourcesMetadata?.sources
+		expect(sources).toHaveLength(1)
+		expect(sources?.[0]?.sourceTitle).toBe('Wikipedia')
+		expect(sources?.[0]?.sourceProviderUrl).toBe('https://w')
+		expect(sources?.[0]?.citationNumber).toBe(1)
+	})
+
+	it('addMetadata merges into botMetadata', () => {
+		const msg = new ORich().addMetadata({ personaId: 'p1', timezone: 'Asia/Jakarta' }).build()
+		expect(msg.messageContextInfo?.botMetadata?.personaId).toBe('p1')
+		expect(msg.messageContextInfo?.botMetadata?.timezone).toBe('Asia/Jakarta')
+	})
+
+	it('addProduct renders image + link and records extras', () => {
+		const msg = new ORich()
+			.addProduct({ title: 'Kopi', price: 25000, currency: 'IDR', url: 'https://shop/1', thumbnailUrl: 'p.png' })
+			.build()
+
+		const subs = msg.richResponseMessage?.submessages ?? []
+		expect(subs[0]?.messageType).toBe(proto.AIRichResponseSubMessageType.AI_RICH_RESPONSE_INLINE_IMAGE)
+		expect(subs[1]?.messageText).toBe('[Kopi — 25000 IDR](https://shop/1)')
+
+		const unified = JSON.parse(decodeText(msg.richResponseMessage?.unifiedResponse?.data))
+		expect(unified.extras.products[0].title).toBe('Kopi')
+	})
+
+	it('addPost renders a link with author', () => {
+		const msg = new ORich().addPost({ title: 'Post', url: 'https://p', author: 'Ann' }).build()
+		expect(sub(msg)?.messageText).toBe('[Post — Ann](https://p)')
+	})
+
+	it('addTip prefixes with Tip and records metadata', () => {
+		const msg = new ORich().addTip('keep it short').build()
+		expect(sub(msg)?.messageText).toBe('Tip: keep it short')
+
+		const unified = JSON.parse(decodeText(msg.richResponseMessage?.unifiedResponse?.data))
+		expect(unified.extras.tips[0].text).toBe('keep it short')
+	})
+
+	it('addTip honours a custom title', () => {
+		const msg = new ORich().addTip('body', { title: 'Pro tip' }).build()
+		expect(sub(msg)?.messageText).toBe('Pro tip\nbody')
+	})
+
+	it('addWidget renders a link and records the widget', () => {
+		const msg = new ORich().addWidget({ title: 'Weather', url: 'https://w/x' }).build()
+		expect(sub(msg)?.messageText).toBe('[Weather](https://w/x)')
+
+		const unified = JSON.parse(decodeText(msg.richResponseMessage?.unifiedResponse?.data))
+		expect(unified.extras.widgets[0].title).toBe('Weather')
+	})
+
+	it('addFooterAction renders a link', () => {
+		const msg = new ORich().addFooterAction({ label: 'Open', url: 'https://o' }).build()
+		expect(sub(msg)?.messageText).toBe('[Open](https://o)')
+	})
+
+	it('addSuggest appends prompts and keeps them in unified extras', () => {
+		const msg = new ORich().addSuggest(['a', 'b'], 'c').build()
+		expect(msg.messageContextInfo?.botMetadata?.suggestedPromptMetadata?.suggestedPrompts).toEqual(['a', 'b', 'c'])
+
+		const unified = JSON.parse(decodeText(msg.richResponseMessage?.unifiedResponse?.data))
+		expect(unified.extras.suggests).toEqual(['a', 'b', 'c'])
+	})
+
+	it('merges with an existing unified payload', () => {
+		const msg = new ORich()
+			.addText('t')
+			.setUnifiedResponse({ version: 2, sections: [{ type: 'text', text: 'x' }] })
+			.addTip('y')
+			.build()
+
+		const unified = JSON.parse(decodeText(msg.richResponseMessage?.unifiedResponse?.data))
+		expect(unified.sections).toEqual([{ type: 'text', text: 'x' }])
+		expect(unified.extras.tips[0].text).toBe('y')
+	})
+
+	it('does not add a unified payload when there are no extras', () => {
+		const msg = new ORich().addText('just text').build()
+		expect(msg.richResponseMessage?.unifiedResponse).toBeUndefined()
+	})
+})
+
+describe('sendStatusMentions', () => {
+	it('relays to status@broadcast with a normalized jid list', async () => {
+		const { sock, calls } = makeMockSock()
+		await sendStatusMentions(sock, 'hello status', ['628111:2@s.whatsapp.net', '628222@s.whatsapp.net'])
+
+		expect(calls[0]!.jid).toBe('status@broadcast')
+		expect(calls[0]!.content).toEqual({ conversation: 'hello status' })
+		expect((calls[0]!.options as { statusJidList?: string[] }).statusJidList).toEqual([
+			'628111@s.whatsapp.net',
+			'628222@s.whatsapp.net'
+		])
+	})
+
+	it('accepts a builder and injects quoted context', async () => {
+		const { sock, calls } = makeMockSock()
+		const quoted = { key: { id: 'QS', remoteJid: '628@s.whatsapp.net', fromMe: false } } as WAMessage
+		await sendStatusMentions(sock, new RichMessageBuilder().addText('s'), ['628111@s.whatsapp.net'], { quoted })
+
+		expect(calls[0]!.content.richResponseMessage?.contextInfo?.stanzaId).toBe('QS')
+	})
+
+	it('drops invalid jids from the list', async () => {
+		const { sock, calls } = makeMockSock()
+		await sendStatusMentions(sock, 'x', ['', '628111@s.whatsapp.net'])
+		expect((calls[0]!.options as { statusJidList?: string[] }).statusJidList).toEqual(['628111@s.whatsapp.net'])
+	})
+})
+
+describe('readRichMessage Phase 3', () => {
+	it('parses GRID_IMAGE blocks', () => {
+		const msg = new RichMessageBuilder().addGridImage(['a', 'b']).build()
+		const parsed = readRichMessage(msg)
+		expect(parsed?.blocks[0]).toEqual({ type: 'gridImage', urls: ['a', 'b'] })
+	})
+
+	it('parses CONTENT_ITEMS reels', () => {
+		const msg = new RichMessageBuilder().addReels([{ url: 'https://v/1', caption: 'one' }]).build()
+		const parsed = readRichMessage(msg)
+		expect(parsed?.blocks[0]).toEqual({ type: 'reels', items: [{ url: 'https://v/1', caption: 'one' }] })
+	})
+
+	it('parses DYNAMIC video blocks', () => {
+		const msg = new RichMessageBuilder().addVideo('https://v/g').build()
+		const parsed = readRichMessage(msg)
+		expect(parsed?.blocks[0]).toEqual({ type: 'video', url: 'https://v/g' })
+	})
+
+	it('decodes unifiedResponse v2 payloads', () => {
+		const msg = new RichMessageBuilder().addText('t').setUnifiedResponse({ version: 2, html: '<b>x</b>' }).build()
+		const parsed = readRichMessage(msg)
+		expect(parsed?.unified?.html).toBe('<b>x</b>')
+	})
+
+	it('surfaces v2 sections as blocks even without submessages', () => {
+		const parsed = readRichMessage(
+			generateUnifiedContent({
+				version: 2,
+				sections: [
+					{ type: 'text', text: 'hello' },
+					{ type: 'code', code: 'x', language: 'js' }
+				]
+			})
+		)
+
+		expect(parsed?.blocks).toEqual([
+			{ type: 'text', text: 'hello' },
+			{ type: 'code', code: 'x', language: 'js' }
+		])
+		expect(parsed?.text).toBe('hello')
+	})
+
+	it('leaves unified undefined for non-JSON payloads', () => {
+		const msg = new RichMessageBuilder()
+			.addText('t')
+			.setUnifiedResponse(new Uint8Array([1, 2, 3]))
+			.build()
+		const parsed = readRichMessage(msg)
+		expect(parsed?.unifiedResponse).toEqual(new Uint8Array([1, 2, 3]))
+		expect(parsed?.unified).toBeUndefined()
+	})
+
+	it('ignores JSON payloads without version 2', () => {
+		const msg = new RichMessageBuilder().addText('t').setUnifiedResponse('{"version":1}').build()
+		expect(readRichMessage(msg)?.unified).toBeUndefined()
 	})
 })

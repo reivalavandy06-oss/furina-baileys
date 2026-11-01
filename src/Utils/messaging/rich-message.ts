@@ -8,6 +8,342 @@ export interface RichMessageSendOptions extends MessageRelayOptions {
 	quoted?: WAMessage
 }
 
+// ── unified response (V2) ────────────────────────────────────────────────
+export interface UnifiedSection {
+	type: string
+	[key: string]: unknown
+}
+
+export interface UnifiedPayload {
+	version: 2
+	type?: string
+	html?: string
+	sections?: UnifiedSection[]
+	extras?: Record<string, unknown>
+	[key: string]: unknown
+}
+
+// ── code tokenizer ───────────────────────────────────────────────────────
+export type CodeHighlightType = 'KEYWORD' | 'METHOD' | 'STRING' | 'NUMBER' | 'COMMENT' | 'DEFAULT'
+
+export interface CodeToken {
+	value: string
+	type: CodeHighlightType
+}
+
+export const CODE_HIGHLIGHT_TO_PROTO: Record<
+	CodeHighlightType,
+	proto.AIRichResponseCodeMetadata.AIRichResponseCodeHighlightType
+> = {
+	KEYWORD: proto.AIRichResponseCodeMetadata.AIRichResponseCodeHighlightType.AI_RICH_RESPONSE_CODE_HIGHLIGHT_KEYWORD,
+	METHOD: proto.AIRichResponseCodeMetadata.AIRichResponseCodeHighlightType.AI_RICH_RESPONSE_CODE_HIGHLIGHT_METHOD,
+	STRING: proto.AIRichResponseCodeMetadata.AIRichResponseCodeHighlightType.AI_RICH_RESPONSE_CODE_HIGHLIGHT_STRING,
+	NUMBER: proto.AIRichResponseCodeMetadata.AIRichResponseCodeHighlightType.AI_RICH_RESPONSE_CODE_HIGHLIGHT_NUMBER,
+	COMMENT: proto.AIRichResponseCodeMetadata.AIRichResponseCodeHighlightType.AI_RICH_RESPONSE_CODE_HIGHLIGHT_COMMENT,
+	DEFAULT: proto.AIRichResponseCodeMetadata.AIRichResponseCodeHighlightType.AI_RICH_RESPONSE_CODE_HIGHLIGHT_DEFAULT
+}
+
+const KEYWORDS: Record<string, string[]> = {
+	javascript: [
+		'const',
+		'let',
+		'var',
+		'function',
+		'return',
+		'if',
+		'else',
+		'for',
+		'while',
+		'do',
+		'switch',
+		'case',
+		'break',
+		'continue',
+		'new',
+		'class',
+		'extends',
+		'super',
+		'this',
+		'import',
+		'from',
+		'export',
+		'default',
+		'async',
+		'await',
+		'try',
+		'catch',
+		'finally',
+		'throw',
+		'typeof',
+		'instanceof',
+		'in',
+		'of',
+		'yield',
+		'delete',
+		'void',
+		'null',
+		'undefined',
+		'true',
+		'false',
+		'static',
+		'get',
+		'set'
+	],
+	typescript: [
+		'const',
+		'let',
+		'var',
+		'function',
+		'return',
+		'if',
+		'else',
+		'for',
+		'while',
+		'switch',
+		'case',
+		'break',
+		'continue',
+		'new',
+		'class',
+		'extends',
+		'implements',
+		'interface',
+		'type',
+		'enum',
+		'namespace',
+		'public',
+		'private',
+		'protected',
+		'readonly',
+		'super',
+		'this',
+		'import',
+		'from',
+		'export',
+		'default',
+		'async',
+		'await',
+		'try',
+		'catch',
+		'finally',
+		'throw',
+		'typeof',
+		'keyof',
+		'as',
+		'declare',
+		'abstract',
+		'null',
+		'undefined',
+		'true',
+		'false',
+		'void',
+		'never',
+		'unknown',
+		'any'
+	],
+	python: [
+		'def',
+		'class',
+		'return',
+		'if',
+		'elif',
+		'else',
+		'for',
+		'while',
+		'break',
+		'continue',
+		'import',
+		'from',
+		'as',
+		'with',
+		'try',
+		'except',
+		'finally',
+		'raise',
+		'yield',
+		'lambda',
+		'pass',
+		'global',
+		'nonlocal',
+		'assert',
+		'del',
+		'in',
+		'is',
+		'not',
+		'and',
+		'or',
+		'None',
+		'True',
+		'False',
+		'async',
+		'await'
+	],
+	go: [
+		'package',
+		'import',
+		'func',
+		'return',
+		'if',
+		'else',
+		'for',
+		'range',
+		'switch',
+		'case',
+		'break',
+		'continue',
+		'var',
+		'const',
+		'type',
+		'struct',
+		'interface',
+		'map',
+		'chan',
+		'go',
+		'defer',
+		'select',
+		'nil',
+		'true',
+		'false'
+	],
+	rust: [
+		'fn',
+		'let',
+		'mut',
+		'const',
+		'struct',
+		'enum',
+		'impl',
+		'trait',
+		'use',
+		'mod',
+		'pub',
+		'return',
+		'if',
+		'else',
+		'for',
+		'while',
+		'loop',
+		'match',
+		'break',
+		'continue',
+		'move',
+		'async',
+		'await',
+		'dyn',
+		'where',
+		'self',
+		'Self',
+		'true',
+		'false',
+		'None',
+		'Some',
+		'Ok',
+		'Err'
+	],
+	java: [
+		'class',
+		'interface',
+		'enum',
+		'extends',
+		'implements',
+		'public',
+		'private',
+		'protected',
+		'static',
+		'final',
+		'void',
+		'return',
+		'if',
+		'else',
+		'for',
+		'while',
+		'do',
+		'switch',
+		'case',
+		'break',
+		'continue',
+		'new',
+		'import',
+		'package',
+		'try',
+		'catch',
+		'finally',
+		'throw',
+		'throws',
+		'null',
+		'true',
+		'false',
+		'this',
+		'super'
+	]
+}
+
+const HASH_COMMENT_LANGUAGES = new Set(['python', 'ruby', 'shell', 'bash', 'sh', 'yaml', 'yml', 'perl', 'r'])
+const SLASH_COMMENT_LANGUAGES = new Set(['javascript', 'typescript', 'java', 'go', 'rust', 'c', 'cpp', 'csharp', 'css'])
+
+const keywordSetFor = (language: string): Set<string> => {
+	const key = language.toLowerCase()
+	const base = KEYWORDS[key] ?? KEYWORDS.javascript ?? []
+	if (key === 'javascript' || key === 'js')
+		return new Set([...(KEYWORDS.javascript ?? []), ...(KEYWORDS.typescript ?? [])])
+	if (key === 'ts' || key === 'typescript')
+		return new Set([...(KEYWORDS.typescript ?? []), ...(KEYWORDS.javascript ?? [])])
+	if (key === 'py') return new Set(KEYWORDS.python ?? [])
+	return new Set(base)
+}
+
+/**
+ * Splits source code into highlight tokens. Comments, strings, numbers,
+ * keywords and call-like identifiers (METHOD) are classified; everything
+ * else is DEFAULT. Whitespace is preserved inside DEFAULT tokens so the
+ * original source can be reconstructed by joining token values.
+ */
+export function tokenizeCode(code: string, language = 'text'): CodeToken[] {
+	const lang = language.toLowerCase()
+	const keywords = keywordSetFor(lang)
+	const allowHash = HASH_COMMENT_LANGUAGES.has(lang)
+	const allowSlash = SLASH_COMMENT_LANGUAGES.has(lang) || !allowHash
+
+	const commentPattern = [
+		...(allowSlash ? ['\\/\\/[^\\n]*', '\\/\\*[\\s\\S]*?\\*\\/'] : []),
+		...(allowHash ? ['#[^\\n]*'] : [])
+	].join('|')
+
+	const pattern = new RegExp(
+		`(${commentPattern})|("(?:\\\\.|[^"\\\\\\n])*"|'(?:\\\\.|[^'\\\\\\n])*'|\`(?:\\\\.|[^\`\\\\])*\`)|(\\b\\d+(?:\\.\\d+)?\\b)|([A-Za-z_$][\\w$]*)|([\\s\\S])`,
+		'g'
+	)
+
+	const tokens: CodeToken[] = []
+	let match: RegExpExecArray | null
+
+	while ((match = pattern.exec(code)) !== null) {
+		const [raw, comment, str, num, ident] = match
+		if (comment !== undefined) {
+			tokens.push({ value: raw, type: 'COMMENT' })
+		} else if (str !== undefined) {
+			tokens.push({ value: raw, type: 'STRING' })
+		} else if (num !== undefined) {
+			tokens.push({ value: raw, type: 'NUMBER' })
+		} else if (ident !== undefined) {
+			if (keywords.has(ident)) {
+				tokens.push({ value: raw, type: 'KEYWORD' })
+			} else {
+				const rest = code.slice(pattern.lastIndex)
+				const isCall = /^\s*\(/.test(rest)
+				tokens.push({ value: raw, type: isCall ? 'METHOD' : 'DEFAULT' })
+			}
+		} else {
+			tokens.push({ value: raw, type: 'DEFAULT' })
+		}
+
+		if (raw.length === 0) pattern.lastIndex++
+	}
+
+	return tokens
+}
+
+// ── blocks ───────────────────────────────────────────────────────────────
 type RichContentBlock =
 	| { type: 'text'; text: string }
 	| { type: 'code'; code: string; language: string }
@@ -17,6 +353,9 @@ type RichContentBlock =
 	| { type: 'image'; url: string; caption: string }
 	| { type: 'latex'; formula: string }
 	| { type: 'map'; latitude: number; longitude: number; delta: number }
+	| { type: 'gridImage'; urls: string[] }
+	| { type: 'reels'; items: { url: string; caption?: string }[] }
+	| { type: 'video'; url: string; caption?: string }
 
 export type ParsedRichBlock =
 	| { type: 'text'; text: string }
@@ -27,6 +366,9 @@ export type ParsedRichBlock =
 	| { type: 'image'; url?: string; caption?: string }
 	| { type: 'latex'; formula: string }
 	| { type: 'map'; latitude?: number; longitude?: number; latitudeDelta?: number; longitudeDelta?: number }
+	| { type: 'gridImage'; urls: string[] }
+	| { type: 'reels'; items: { url?: string; caption?: string }[] }
+	| { type: 'video'; url?: string }
 	| { type: 'unknown'; raw: proto.IAIRichResponseSubMessage }
 
 export interface ParsedRichMessage {
@@ -37,6 +379,8 @@ export interface ParsedRichMessage {
 	/** suggested prompts carried in messageContextInfo.botMetadata */
 	suggestions: string[]
 	unifiedResponse?: Uint8Array
+	/** decoded V2 payload when unifiedResponse holds JSON */
+	unified?: UnifiedPayload
 	contextInfo?: proto.IContextInfo
 }
 
@@ -50,8 +394,7 @@ const splitTableRow = (line: string): string[] =>
 		.split('|')
 		.map(cell => cell.trim())
 
-const isSeparatorRow = (cells: string[]): boolean =>
-	cells.length > 0 && cells.every(cell => /^:?-{3,}:?$/.test(cell))
+const isSeparatorRow = (cells: string[]): boolean => cells.length > 0 && cells.every(cell => /^:?-{3,}:?$/.test(cell))
 
 const parseTextBlock = (text: string): ParsedRichBlock => {
 	const trimmed = text.trim()
@@ -106,11 +449,34 @@ const applyQuotedContext = (content: proto.IMessage, quoted?: WAMessage) => {
 	}
 }
 
+const encodeUnified = (payload: UnifiedPayload): Uint8Array => new TextEncoder().encode(JSON.stringify(payload))
+
+const decodeUnified = (data?: Uint8Array | null): UnifiedPayload | undefined => {
+	if (!data || data.length === 0) return undefined
+
+	try {
+		const parsed: unknown = JSON.parse(new TextDecoder().decode(data))
+		if (parsed && typeof parsed === 'object' && (parsed as UnifiedPayload).version === 2) {
+			return parsed as UnifiedPayload
+		}
+	} catch {
+		// not our JSON envelope; treat as opaque bytes
+	}
+
+	return undefined
+}
+
+const imageUrl = (url: string): proto.IAIRichResponseImageURL => ({
+	imagePreviewUrl: url,
+	imageHighResUrl: url,
+	sourceUrl: url
+})
+
 export class RichMessageBuilder {
-	private blocks: RichContentBlock[] = []
-	private suggestions: string[] = []
-	private unifiedResponse?: Uint8Array
-	private botForwarded = false
+	protected blocks: RichContentBlock[] = []
+	protected suggestions: string[] = []
+	protected unifiedResponse?: Uint8Array
+	protected botForwarded = false
 
 	addText(text: string): this {
 		this.blocks.push({ type: 'text', text })
@@ -143,6 +509,26 @@ export class RichMessageBuilder {
 		return this
 	}
 
+	addInlineImage(url: string, caption = ''): this {
+		this.blocks.push({ type: 'image', url, caption })
+		return this
+	}
+
+	addGridImage(urls: string[]): this {
+		this.blocks.push({ type: 'gridImage', urls })
+		return this
+	}
+
+	addReels(items: { url: string; caption?: string }[]): this {
+		this.blocks.push({ type: 'reels', items })
+		return this
+	}
+
+	addVideo(url: string, caption?: string): this {
+		this.blocks.push({ type: 'video', url, caption })
+		return this
+	}
+
 	addMap(lat: number, lng: number, zoom: number): this {
 		const clampedZoom = Math.min(20, Math.max(0, zoom))
 		const delta = 360 / Math.pow(2, clampedZoom)
@@ -160,8 +546,13 @@ export class RichMessageBuilder {
 		return this
 	}
 
-	setUnifiedResponse(data: Uint8Array | string): this {
-		this.unifiedResponse = typeof data === 'string' ? new TextEncoder().encode(data) : data
+	setUnifiedResponse(data: Uint8Array | string | UnifiedPayload): this {
+		this.unifiedResponse =
+			typeof data === 'string'
+				? new TextEncoder().encode(data)
+				: data instanceof Uint8Array
+					? data
+					: encodeUnified(data)
 		return this
 	}
 
@@ -315,17 +706,54 @@ export class RichMessageBuilder {
 					submessages.push({
 						messageType: proto.AIRichResponseSubMessageType.AI_RICH_RESPONSE_INLINE_IMAGE,
 						imageMetadata: {
-							imageUrl: {
-								imagePreviewUrl: block.url,
-								imageHighResUrl: block.url,
-								sourceUrl: block.url
-							},
+							imageUrl: imageUrl(block.url),
 							imageText: block.caption,
 							alignment:
 								proto.AIRichResponseInlineImageMetadata.AIRichResponseImageAlignment
 									.AI_RICH_RESPONSE_IMAGE_LAYOUT_CENTER_ALIGNED
 						}
 					})
+					break
+				case 'gridImage':
+					submessages.push({
+						messageType: proto.AIRichResponseSubMessageType.AI_RICH_RESPONSE_GRID_IMAGE,
+						gridImageMetadata: {
+							gridImageUrl: block.urls[0] ? imageUrl(block.urls[0]) : undefined,
+							imageUrls: block.urls.map(imageUrl)
+						}
+					})
+					break
+				case 'reels':
+					submessages.push({
+						messageType: proto.AIRichResponseSubMessageType.AI_RICH_RESPONSE_CONTENT_ITEMS,
+						contentItemsMetadata: {
+							contentType: proto.AIRichResponseContentItemsMetadata.ContentType.DEFAULT,
+							itemsMetadata: block.items.map(item => ({
+								reelItem: {
+									videoUrl: item.url,
+									title: item.caption ?? '',
+									thumbnailUrl: item.url
+								}
+							}))
+						}
+					})
+					break
+				case 'video':
+					submessages.push({
+						messageType: proto.AIRichResponseSubMessageType.AI_RICH_RESPONSE_DYNAMIC,
+						dynamicMetadata: {
+							type: proto.AIRichResponseDynamicMetadata.AIRichResponseDynamicMetadataType
+								.AI_RICH_RESPONSE_DYNAMIC_METADATA_TYPE_GIF,
+							url: block.url,
+							version: 1
+						}
+					})
+					if (block.caption) {
+						submessages.push({
+							messageType: proto.AIRichResponseSubMessageType.AI_RICH_RESPONSE_TEXT,
+							messageText: block.caption
+						})
+					}
 					break
 				case 'latex':
 					submessages.push({
@@ -378,8 +806,193 @@ export class RichMessageBuilder {
 	}
 }
 
+// ── ORich: rich builder + sources / products / widgets / footer actions ──
+export interface ORichSource {
+	title: string
+	url: string
+	thumbnailUrl?: string
+	faviconUrl?: string
+	query?: string
+	citationNumber?: number
+	/** source provider label; falls back to OTHER */
+	provider?: keyof typeof proto.BotSourcesMetadata.BotSourceItem.SourceProvider
+}
+
+export interface ORichProduct {
+	id?: string
+	title: string
+	price?: number | string
+	currency?: string
+	url?: string
+	thumbnailUrl?: string
+}
+
+export interface ORichPost {
+	title: string
+	url: string
+	author?: string
+	thumbnailUrl?: string
+}
+
+export interface ORichWidget {
+	title: string
+	url?: string
+	type?: string
+	data?: Record<string, unknown>
+}
+
+export interface ORichFooterAction {
+	label: string
+	url: string
+}
+
+export interface ORichTipOptions {
+	title?: string
+}
+
+export class ORich extends RichMessageBuilder {
+	private sources: ORichSource[] = []
+	private metadata: Partial<proto.IBotMetadata> = {}
+	private extras: Record<string, unknown> = {}
+
+	addSource(...sources: ORichSource[]): this {
+		this.sources.push(...sources)
+		return this
+	}
+
+	addVideo(url: string, caption?: string): this {
+		super.addVideo(url, caption)
+		this.extras.videos = [...((this.extras.videos as unknown[]) ?? []), { url, caption }]
+		return this
+	}
+
+	addProduct(product: ORichProduct): this {
+		const parts = [product.title]
+		if (product.price !== undefined) {
+			parts.push(`${product.price}${product.currency ? ` ${product.currency}` : ''}`)
+		}
+
+		if (product.thumbnailUrl) {
+			super.addInlineImage(product.thumbnailUrl, product.title)
+		}
+
+		if (product.url) {
+			super.addLink(product.url, parts.join(' — '))
+		} else {
+			super.addText(parts.join(' — '))
+		}
+
+		this.extras.products = [...((this.extras.products as unknown[]) ?? []), product]
+		return this
+	}
+
+	addPost(post: ORichPost): this {
+		if (post.thumbnailUrl) {
+			super.addInlineImage(post.thumbnailUrl, post.title)
+		}
+
+		super.addLink(post.url, post.author ? `${post.title} — ${post.author}` : post.title)
+		this.extras.posts = [...((this.extras.posts as unknown[]) ?? []), post]
+		return this
+	}
+
+	addMetadata(meta: Partial<proto.IBotMetadata>): this {
+		this.metadata = { ...this.metadata, ...meta }
+		return this
+	}
+
+	addTip(text: string, options: ORichTipOptions = {}): this {
+		super.addText(options.title ? `${options.title}\n${text}` : `Tip: ${text}`)
+		this.extras.tips = [...((this.extras.tips as unknown[]) ?? []), { text, ...options }]
+		return this
+	}
+
+	addWidget(widget: ORichWidget): this {
+		if (widget.url) {
+			super.addLink(widget.url, widget.title)
+		} else {
+			super.addText(widget.title)
+		}
+
+		this.extras.widgets = [...((this.extras.widgets as unknown[]) ?? []), widget]
+		return this
+	}
+
+	addFooterAction(action: ORichFooterAction): this {
+		super.addLink(action.url, action.label)
+		this.extras.footerActions = [...((this.extras.footerActions as unknown[]) ?? []), action]
+		return this
+	}
+
+	addSuggest(...items: (string | string[])[]): this {
+		const flat = items.flat()
+		this.addSuggestions(flat)
+		this.extras.suggests = [...((this.extras.suggests as unknown[]) ?? []), ...flat]
+		return this
+	}
+
+	build(): proto.IMessage {
+		const content = super.build()
+
+		const hasExtras = Object.keys(this.extras).length > 0
+		if (hasExtras) {
+			const rich = getRichResponse(content)
+			if (rich) {
+				const existing = decodeUnified(rich.unifiedResponse?.data)
+				const merged: UnifiedPayload = {
+					...(existing ?? { version: 2 }),
+					version: 2,
+					extras: { ...(existing?.extras ?? {}), ...this.extras }
+				}
+				rich.unifiedResponse = { data: encodeUnified(merged) }
+			}
+		}
+
+		if (this.sources.length > 0 || Object.keys(this.metadata).length > 0) {
+			const existing = content.messageContextInfo ?? {}
+			const sourcesMetadata: proto.IBotSourcesMetadata | undefined =
+				this.sources.length > 0
+					? {
+							sources: this.sources.map(source => ({
+								provider:
+									proto.BotSourcesMetadata.BotSourceItem.SourceProvider[source.provider ?? 'OTHER'] ??
+									proto.BotSourcesMetadata.BotSourceItem.SourceProvider.OTHER,
+								sourceProviderUrl: source.url,
+								sourceQuery: source.query,
+								thumbnailCdnUrl: source.thumbnailUrl,
+								faviconCdnUrl: source.faviconUrl,
+								citationNumber: source.citationNumber,
+								sourceTitle: source.title
+							}))
+						}
+					: undefined
+
+			content.messageContextInfo = {
+				...existing,
+				botMetadata: {
+					...(existing.botMetadata ?? {}),
+					...this.metadata,
+					...(sourcesMetadata ? { richResponseSourcesMetadata: sourcesMetadata } : {})
+				}
+			}
+		}
+
+		return content
+	}
+}
+
+// ── senders ──────────────────────────────────────────────────────────────
 export const buildLatexImageUrl = (formula: string, dpi = 150): string =>
 	`https://latex.codecogs.com/png.image?%5Cdpi%7B${dpi}%7D%20${encodeURIComponent(formula)}`
+
+const normalizeJidOrThrow = (jid: string): string => {
+	const normalized = jidNormalizedUser(jid)
+	if (!normalized) {
+		throw new Error(`Invalid JID: ${jid}`)
+	}
+
+	return normalized
+}
 
 export async function sendRichMessage(
 	sock: FurinaSocket,
@@ -387,11 +1000,7 @@ export async function sendRichMessage(
 	builder: RichMessageBuilder,
 	options: RichMessageSendOptions = {}
 ): Promise<WAMessage> {
-	const normalizedJid = jidNormalizedUser(jid)
-	if (!normalizedJid) {
-		throw new Error(`Invalid JID: ${jid}`)
-	}
-
+	const normalizedJid = normalizeJidOrThrow(jid)
 	const content = builder.build()
 	applyQuotedContext(content, options.quoted)
 	return sock.relayMessage(normalizedJid, content, options)
@@ -460,6 +1069,139 @@ export function sendMarkdown(
 	return sendRichMessage(sock, jid, builder, { ...(opts ?? {}), quoted })
 }
 
+// ── V2 (unified sections) senders ────────────────────────────────────────
+export function generateUnifiedContent(payload: UnifiedPayload): proto.IMessage {
+	return {
+		richResponseMessage: {
+			messageType: proto.AIRichResponseMessageType.AI_RICH_RESPONSE_TYPE_STANDARD,
+			submessages: [],
+			unifiedResponse: { data: encodeUnified(payload) }
+		}
+	}
+}
+
+export async function sendUnifiedResponse(
+	sock: FurinaSocket,
+	jid: string,
+	data: UnifiedPayload | string | Uint8Array,
+	options: RichMessageSendOptions = {}
+): Promise<WAMessage> {
+	const normalizedJid = normalizeJidOrThrow(jid)
+
+	let bytes: Uint8Array
+	if (typeof data === 'string') {
+		bytes = new TextEncoder().encode(data)
+	} else if (data instanceof Uint8Array) {
+		bytes = data
+	} else {
+		bytes = encodeUnified({ ...data, version: 2 })
+	}
+
+	const content: proto.IMessage = {
+		richResponseMessage: {
+			messageType: proto.AIRichResponseMessageType.AI_RICH_RESPONSE_TYPE_STANDARD,
+			submessages: [],
+			unifiedResponse: { data: bytes }
+		}
+	}
+
+	applyQuotedContext(content, options.quoted)
+	return sock.relayMessage(normalizedJid, content, options)
+}
+
+export function sendTableV2(
+	sock: FurinaSocket,
+	jid: string,
+	title: string,
+	headers: string[],
+	rows: string[][],
+	options: RichMessageSendOptions = {}
+): Promise<WAMessage> {
+	const builder = new RichMessageBuilder()
+	if (title) builder.addText(title)
+	builder.addTable(headers, rows)
+	builder.setUnifiedResponse({
+		version: 2,
+		sections: [{ type: 'table', title, headers, rows }]
+	})
+	return sendRichMessage(sock, jid, builder, options)
+}
+
+export function sendCodeBlockV2(
+	sock: FurinaSocket,
+	jid: string,
+	code: string,
+	language: string,
+	options: RichMessageSendOptions = {}
+): Promise<WAMessage> {
+	const builder = new RichMessageBuilder()
+	builder.addCodeBlock(code, language)
+	builder.setUnifiedResponse({
+		version: 2,
+		sections: [{ type: 'code', language, code }]
+	})
+	return sendRichMessage(sock, jid, builder, options)
+}
+
+export function sendLinkV2(
+	sock: FurinaSocket,
+	jid: string,
+	url: string,
+	title: string,
+	options: RichMessageSendOptions = {}
+): Promise<WAMessage> {
+	const builder = new RichMessageBuilder()
+	builder.addLink(url, title)
+	builder.setUnifiedResponse({
+		version: 2,
+		sections: [{ type: 'link', url, title }]
+	})
+	return sendRichMessage(sock, jid, builder, options)
+}
+
+// ── rich HTML mini-app ───────────────────────────────────────────────────
+export function generateRichHtmlContent(html: string): proto.IMessage {
+	return generateUnifiedContent({ version: 2, type: 'html', html })
+}
+
+export function sendRichHtml(
+	sock: FurinaSocket,
+	jid: string,
+	html: string,
+	options: RichMessageSendOptions = {}
+): Promise<WAMessage> {
+	const normalizedJid = normalizeJidOrThrow(jid)
+	const content = generateRichHtmlContent(html)
+	applyQuotedContext(content, options.quoted)
+	return sock.relayMessage(normalizedJid, content, options)
+}
+
+// ── status mentions ──────────────────────────────────────────────────────
+export async function sendStatusMentions(
+	sock: FurinaSocket,
+	content: proto.IMessage | RichMessageBuilder | string,
+	jids: string[],
+	options: RichMessageSendOptions = {}
+): Promise<WAMessage> {
+	const normalized = jids.map(jid => jidNormalizedUser(jid)).filter((jid): jid is string => jid.length > 0)
+
+	let message: proto.IMessage
+	if (typeof content === 'string') {
+		message = { conversation: content }
+	} else if (content instanceof RichMessageBuilder) {
+		message = content.build()
+		applyQuotedContext(message, options.quoted)
+	} else {
+		message = content
+	}
+
+	return sock.relayMessage('status@broadcast', message, {
+		...options,
+		statusJidList: normalized
+	})
+}
+
+// ── parser ───────────────────────────────────────────────────────────────
 export function readRichMessage(message: proto.IMessage): ParsedRichMessage | null {
 	const inner = unwrapMessage(message)
 	const rich = inner.richResponseMessage
@@ -502,11 +1244,33 @@ export function readRichMessage(message: proto.IMessage): ParsedRichMessage | nu
 					caption: sub.imageMetadata?.imageText ?? undefined
 				})
 				break
+			case proto.AIRichResponseSubMessageType.AI_RICH_RESPONSE_GRID_IMAGE:
+				blocks.push({
+					type: 'gridImage',
+					urls: (sub.gridImageMetadata?.imageUrls ?? [])
+						.map(url => url.imageHighResUrl ?? url.imagePreviewUrl ?? url.sourceUrl ?? '')
+						.filter(url => url.length > 0)
+				})
+				break
+			case proto.AIRichResponseSubMessageType.AI_RICH_RESPONSE_CONTENT_ITEMS:
+				blocks.push({
+					type: 'reels',
+					items: (sub.contentItemsMetadata?.itemsMetadata ?? []).map(item => ({
+						url: item.reelItem?.videoUrl ?? undefined,
+						caption: item.reelItem?.title ?? undefined
+					}))
+				})
+				break
+			case proto.AIRichResponseSubMessageType.AI_RICH_RESPONSE_DYNAMIC:
+				blocks.push({
+					type: 'video',
+					url: sub.dynamicMetadata?.url ?? undefined
+				})
+				break
 			case proto.AIRichResponseSubMessageType.AI_RICH_RESPONSE_LATEX:
 				blocks.push({
 					type: 'latex',
-					formula:
-						sub.latexMetadata?.text ?? sub.latexMetadata?.expressions?.[0]?.latexExpression ?? ''
+					formula: sub.latexMetadata?.text ?? sub.latexMetadata?.expressions?.[0]?.latexExpression ?? ''
 				})
 				break
 			case proto.AIRichResponseSubMessageType.AI_RICH_RESPONSE_MAP:
@@ -521,6 +1285,17 @@ export function readRichMessage(message: proto.IMessage): ParsedRichMessage | nu
 			default:
 				blocks.push({ type: 'unknown', raw: sub })
 				break
+		}
+	}
+
+	const unified = decodeUnified(rich.unifiedResponse?.data)
+
+	// V2 payloads may carry sections without matching submessages; surface them
+	// as blocks so a V2-only message is still readable.
+	if (unified?.sections) {
+		for (const section of unified.sections) {
+			const block = unifiedSectionToBlock(section)
+			if (block) blocks.push(block)
 		}
 	}
 
@@ -542,6 +1317,33 @@ export function readRichMessage(message: proto.IMessage): ParsedRichMessage | nu
 		text,
 		suggestions: suggestedPrompts,
 		unifiedResponse: rich.unifiedResponse?.data ?? undefined,
+		unified,
 		contextInfo: rich.contextInfo ?? undefined
+	}
+}
+
+const unifiedSectionToBlock = (section: UnifiedSection): ParsedRichBlock | null => {
+	switch (section.type) {
+		case 'table': {
+			const headers = Array.isArray(section.headers) ? (section.headers as string[]) : []
+			const rows = Array.isArray(section.rows) ? (section.rows as string[][]) : []
+			return { type: 'table', headers, rows }
+		}
+		case 'code':
+			return {
+				type: 'code',
+				code: typeof section.code === 'string' ? section.code : '',
+				language: typeof section.language === 'string' ? section.language : undefined
+			}
+		case 'link':
+			return {
+				type: 'link',
+				url: typeof section.url === 'string' ? section.url : '',
+				title: typeof section.title === 'string' ? section.title : undefined
+			}
+		case 'text':
+			return { type: 'text', text: typeof section.text === 'string' ? section.text : '' }
+		default:
+			return null
 	}
 }
