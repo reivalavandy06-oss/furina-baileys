@@ -10,7 +10,8 @@ export interface RichMessageSendOptions extends MessageRelayOptions {
 
 // ── unified response (V2) ────────────────────────────────────────────────
 export interface UnifiedSection {
-	type: string
+	/** Optional: view models / primitives are identified by `__typename` only. */
+	type?: string
 	[key: string]: unknown
 }
 
@@ -19,9 +20,40 @@ export interface UnifiedPayload {
 	type?: string
 	html?: string
 	sections?: UnifiedSection[]
+	viewModels?: UnifiedSection[]
+	primitives?: UnifiedSection[]
 	extras?: Record<string, unknown>
 	[key: string]: unknown
 }
+
+const SECTION_TYPENAME = 'GenAIUnifiedResponseSection'
+const VIEW_MODEL_TYPENAME = 'GenAISingleLayoutViewModel'
+
+/** Maps the 3P widget kind to its WhatsApp `__typename`. */
+export const ORICH_WIDGET_TYPENAMES = {
+	cta: 'GenAI3PExtWidgetCTA',
+	toast: 'GenAI3PExtWidgetToast',
+	standard_header: 'GenAI3PExtWidgetStandardHeader',
+	artifact_confirmation: 'GenAI3PExtWidgetArtifactConfirmation',
+	connector_pending_tool_call: 'GenAI3PExtWidgetConnectorPendingToolCall',
+	calendar_attendee: 'GenAI3PExtWidgetCalendarAttendee',
+	calendar_date_section: 'GenAI3PExtWidgetCalendarDateSection',
+	calendar_event_list: 'GenAI3PExtWidgetCalendarEventList',
+	account_linking_bottomsheet: 'GenAI3PExtWidgetAccountLinkingBottomsheet'
+} as const
+
+export type ORichWidgetKind = keyof typeof ORICH_WIDGET_TYPENAMES
+
+/** UX primitive `__typename`s recognised by the unified-response renderer. */
+export const UX_PRIMITIVE_TYPENAMES = {
+	markdown: 'GenAIMarkdownTextUXPrimitive',
+	code: 'GenAICodeUXPrimitive',
+	latex: 'GenAILatexUXPrimitive',
+	table: 'GenATableUXPrimitive',
+	divider: 'GenAIDividerPrimitive',
+	spacer: 'GenAISpacerPrimitive',
+	metadataText: 'GenAIMetadataTextPrimitive'
+} as const
 
 // ── code tokenizer ───────────────────────────────────────────────────────
 export type CodeHighlightType = 'KEYWORD' | 'METHOD' | 'STRING' | 'NUMBER' | 'COMMENT' | 'DEFAULT'
@@ -622,6 +654,68 @@ export class RichMessageBuilder {
 		return this
 	}
 
+	// ── V2 unified sections & view models ────────────────────────────────
+	/** Appends a section to the unified payload, merging with any existing one. */
+	addSection(section: Record<string, unknown>): this {
+		this.mergeUnified(unified => {
+			const sections = (Array.isArray(unified.sections) ? unified.sections : []).slice()
+			sections.push({ __typename: SECTION_TYPENAME, ...section })
+			return { ...unified, sections }
+		})
+		return this
+	}
+
+	/**
+	 * Adds a layout view model (single/grid/hscroll/action-row). Escape hatch:
+	 * the shape is forwarded to WhatsApp verbatim apart from the default
+	 * `__typename`.
+	 */
+	addViewModel(viewModel: Record<string, unknown>): this {
+		this.mergeUnified(unified => {
+			const viewModels = (Array.isArray(unified.viewModels) ? unified.viewModels : []).slice()
+			viewModels.push({ __typename: VIEW_MODEL_TYPENAME, ...viewModel })
+			return { ...unified, viewModels }
+		})
+		return this
+	}
+
+	/** Adds a raw UX primitive without any type normalisation. */
+	addRawPrimitive(primitive: Record<string, unknown>): this {
+		this.mergeUnified(unified => {
+			const primitives = (Array.isArray(unified.primitives) ? unified.primitives : []).slice()
+			primitives.push(primitive)
+			return { ...unified, primitives }
+		})
+		return this
+	}
+
+	addDivider(): this {
+		return this.addRawPrimitive({ __typename: 'GenAIDividerPrimitive' })
+	}
+
+	addSpacer(height: number): this {
+		return this.addRawPrimitive({ __typename: 'GenAISpacerPrimitive', height })
+	}
+
+	addMetadataText(text: string): this {
+		return this.addRawPrimitive({ __typename: 'GenAIMetadataTextPrimitive', text })
+	}
+
+	/** Suggestion chips rendered as an action-row layout. */
+	addActionRow(items: (string | { text: string; [key: string]: unknown })[]): this {
+		const actions = items.map(item =>
+			typeof item === 'string'
+				? { __typename: 'GenAIActionPrimitive', text: item, label: item }
+				: { __typename: 'GenAIActionPrimitive', ...item }
+		)
+		return this.addViewModel({ __typename: 'GenAIActionRowLayoutViewModel', actions })
+	}
+
+	protected mergeUnified(updater: (unified: UnifiedPayload) => UnifiedPayload): void {
+		const existing = this.unifiedResponse ? decodeUnified(this.unifiedResponse) : undefined
+		this.unifiedResponse = encodeUnified(updater(existing ?? { version: 2 }))
+	}
+
 	wrapInBotForwarded(enabled = true): this {
 		this.botForwarded = enabled
 		return this
@@ -904,6 +998,8 @@ export interface ORichWidget {
 	title: string
 	url?: string
 	type?: string
+	/** 3P widget sub-type; selects the `__typename` written to the payload. */
+	kind?: ORichWidgetKind
 	data?: Record<string, unknown>
 }
 
@@ -988,6 +1084,11 @@ export class ORich extends RichMessageBuilder {
 		return this
 	}
 
+	addSection(section: Record<string, unknown>): this {
+		super.addSection(section)
+		return this
+	}
+
 	addWidget(widget: ORichWidget): this {
 		if (widget.url) {
 			super.addLink(widget.url, widget.title)
@@ -995,7 +1096,11 @@ export class ORich extends RichMessageBuilder {
 			super.addText(widget.title)
 		}
 
-		this.extras.widgets = [...((this.extras.widgets as unknown[]) ?? []), widget]
+		const typename = widget.kind ? ORICH_WIDGET_TYPENAMES[widget.kind] : undefined
+		this.extras.widgets = [
+			...((this.extras.widgets as unknown[]) ?? []),
+			typename ? { __typename: typename, ...widget } : widget
+		]
 		return this
 	}
 
@@ -1196,6 +1301,156 @@ export function captureUnifiedResponse(source: proto.IMessage | RichMessageBuild
 	return new TextDecoder().decode(data)
 }
 
+// ── UX primitive encoding ────────────────────────────────────────────────
+export interface TableUXItem {
+	__typename: typeof UX_PRIMITIVE_TYPENAMES.table
+	title?: string
+	headers: string[]
+	rows: string[][]
+	[key: string]: unknown
+}
+
+export interface CodeUXItem {
+	__typename: typeof UX_PRIMITIVE_TYPENAMES.code
+	language: string
+	code: string
+	blocks?: CodeToken[]
+	[key: string]: unknown
+}
+
+export interface MarkdownUXItem {
+	__typename: typeof UX_PRIMITIVE_TYPENAMES.markdown
+	text: string
+	[key: string]: unknown
+}
+
+export interface LatexUXItem {
+	__typename: typeof UX_PRIMITIVE_TYPENAMES.latex
+	formula: string
+	[key: string]: unknown
+}
+
+export type UXPrimitiveItem = TableUXItem | CodeUXItem | MarkdownUXItem | LatexUXItem
+
+const encodeBase64 = (text: string): string => Buffer.from(text, 'utf8').toString('base64')
+
+const decodeBase64 = (text: string): string => {
+	try {
+		const decoded = Buffer.from(text, 'base64').toString('utf8')
+		// `from(..., 'base64')` is lenient; re-encode and compare to reject junk.
+		return Buffer.from(decoded, 'utf8').toString('base64') === text.replace(/\s+/g, '') ? decoded : text
+	} catch {
+		return text
+	}
+}
+
+/**
+ * Wraps a UX primitive in a `{ base64: ... }` envelope. WhatsApp's unified
+ * renderer expects the primitive body base64-encoded.
+ */
+export const toBase64Primitive = <T extends Record<string, unknown>>(item: T): T & { base64: string } => ({
+	...item,
+	base64: encodeBase64(JSON.stringify(item))
+})
+
+const unwrapPrimitive = (primitive: Record<string, unknown>): Record<string, unknown> => {
+	const encoded = primitive.base64
+	if (typeof encoded !== 'string' || encoded.length === 0) return primitive
+
+	try {
+		const parsed: unknown = JSON.parse(decodeBase64(encoded))
+		if (parsed && typeof parsed === 'object') {
+			return parsed as Record<string, unknown>
+		}
+	} catch {
+		// not base64 JSON; fall through to the raw object
+	}
+
+	return primitive
+}
+
+const textFromTableItem = (item: Record<string, unknown>): string => {
+	const headers = Array.isArray(item.headers) ? (item.headers as string[]) : []
+	const rows = Array.isArray(item.rows) ? (item.rows as string[][]) : []
+	const lines: string[] = []
+	if (headers.length > 0) lines.push(headers.join(' | '))
+
+	for (const row of rows) {
+		lines.push((Array.isArray(row) ? row : []).join(' | '))
+	}
+
+	return lines.join('\n')
+}
+
+/**
+ * Extracts plain text from a unified-response payload. Handles markdown, code,
+ * latex and table UX primitives (including base64-wrapped bodies) and falls
+ * back to section text so callers always get something readable.
+ */
+export function getPlainTextFromUnifiedResponse(payload: UnifiedPayload | string | Uint8Array): string {
+	let unified: UnifiedPayload | undefined
+
+	if (typeof payload === 'string') {
+		try {
+			unified = JSON.parse(payload) as UnifiedPayload
+		} catch {
+			return payload
+		}
+	} else if (payload instanceof Uint8Array) {
+		unified = decodeUnified(payload) ?? (JSON.parse(new TextDecoder().decode(payload)) as UnifiedPayload)
+	} else {
+		unified = payload
+	}
+
+	if (!unified || typeof unified !== 'object') return ''
+
+	const chunks: string[] = []
+	const push = (value: unknown) => {
+		if (typeof value === 'string' && value.length > 0) chunks.push(value)
+	}
+
+	const collectPrimitive = (raw: Record<string, unknown>) => {
+		const primitive = unwrapPrimitive(raw)
+		const typename = typeof primitive.__typename === 'string' ? primitive.__typename : ''
+
+		switch (typename) {
+			case UX_PRIMITIVE_TYPENAMES.markdown:
+				push(primitive.text)
+				break
+			case UX_PRIMITIVE_TYPENAMES.code:
+				push(primitive.code)
+				break
+			case UX_PRIMITIVE_TYPENAMES.latex:
+				push(primitive.formula ?? primitive.text)
+				break
+			case UX_PRIMITIVE_TYPENAMES.table:
+				push(textFromTableItem(primitive))
+				break
+			case UX_PRIMITIVE_TYPENAMES.metadataText:
+				push(primitive.text)
+				break
+			default:
+				push(primitive.text)
+				break
+		}
+	}
+
+	if (Array.isArray(unified.primitives)) {
+		for (const primitive of unified.primitives) {
+			if (primitive && typeof primitive === 'object') collectPrimitive(primitive)
+		}
+	}
+
+	for (const section of unified.sections ?? []) {
+		if (!section || typeof section !== 'object') continue
+		if ('text' in section) push(section.text)
+	}
+
+	if (typeof unified.html === 'string') push(unified.html)
+
+	return chunks.join('\n').trim()
+}
+
 export async function sendUnifiedResponse(
 	sock: FurinaSocket,
 	jid: string,
@@ -1236,9 +1491,12 @@ export function sendTableV2(
 	const builder = new RichMessageBuilder()
 	if (title) builder.addText(title)
 	builder.addTable(headers, rows)
+
+	const tableItems: TableUXItem = { __typename: UX_PRIMITIVE_TYPENAMES.table, title, headers, rows }
 	builder.setUnifiedResponse({
 		version: 2,
-		sections: [{ type: 'table', title, headers, rows }]
+		sections: [{ __typename: SECTION_TYPENAME, type: 'table', title, headers, rows }],
+		primitives: [toBase64Primitive(tableItems)]
 	})
 	return sendRichMessage(sock, jid, builder, options)
 }
@@ -1252,9 +1510,17 @@ export function sendCodeBlockV2(
 ): Promise<WAMessage> {
 	const builder = new RichMessageBuilder()
 	builder.addCodeBlock(code, language)
+
+	const codeItems: CodeUXItem = {
+		__typename: UX_PRIMITIVE_TYPENAMES.code,
+		language,
+		code,
+		blocks: tokenizeCode(code, language)
+	}
 	builder.setUnifiedResponse({
 		version: 2,
-		sections: [{ type: 'code', language, code }]
+		sections: [{ __typename: SECTION_TYPENAME, type: 'code', language, code }],
+		primitives: [toBase64Primitive(codeItems)]
 	})
 	return sendRichMessage(sock, jid, builder, options)
 }
@@ -1407,11 +1673,31 @@ export function readRichMessage(message: proto.IMessage): ParsedRichMessage | nu
 	const unified = decodeUnified(rich.unifiedResponse?.data)
 
 	// V2 payloads may carry sections without matching submessages; surface them
-	// as blocks so a V2-only message is still readable.
+	// as blocks so a V2-only message is still readable. Skip sections whose data
+	// is already represented by a submessage (V2 senders emit both).
+	const covered = new Set<ParsedRichBlock['type']>(
+		blocks.map(block => block.type).filter(type => type === 'table' || type === 'code' || type === 'link')
+	)
+
 	if (unified?.sections) {
 		for (const section of unified.sections) {
 			const block = unifiedSectionToBlock(section)
-			if (block) blocks.push(block)
+			if (!block) continue
+			if (covered.has(block.type)) continue
+			blocks.push(block)
+			if (block.type === 'table' || block.type === 'code' || block.type === 'link') covered.add(block.type)
+		}
+	}
+
+	if (unified?.primitives) {
+		for (const primitive of unified.primitives) {
+			if (!primitive || typeof primitive !== 'object') continue
+			const block = unifiedPrimitiveToBlock(primitive)
+			if (!block) continue
+			// Skip structural primitives already emitted as submessages/sections.
+			if ((block.type === 'table' || block.type === 'code') && covered.has(block.type)) continue
+			blocks.push(block)
+			if (block.type === 'table' || block.type === 'code') covered.add(block.type)
 		}
 	}
 
@@ -1459,6 +1745,42 @@ const unifiedSectionToBlock = (section: UnifiedSection): ParsedRichBlock | null 
 			}
 		case 'text':
 			return { type: 'text', text: typeof section.text === 'string' ? section.text : '' }
+		default:
+			return null
+	}
+}
+
+const unifiedPrimitiveToBlock = (raw: Record<string, unknown>): ParsedRichBlock | null => {
+	const primitive = unwrapPrimitive(raw)
+	const typename = typeof primitive.__typename === 'string' ? primitive.__typename : ''
+
+	switch (typename) {
+		case UX_PRIMITIVE_TYPENAMES.markdown:
+			return typeof primitive.text === 'string' ? parseTextBlock(primitive.text) : null
+		case UX_PRIMITIVE_TYPENAMES.code:
+			return {
+				type: 'code',
+				code: typeof primitive.code === 'string' ? primitive.code : '',
+				language: typeof primitive.language === 'string' ? primitive.language : undefined
+			}
+		case UX_PRIMITIVE_TYPENAMES.latex:
+			return {
+				type: 'latex',
+				formula:
+					typeof primitive.formula === 'string'
+						? primitive.formula
+						: typeof primitive.text === 'string'
+							? primitive.text
+							: ''
+			}
+		case UX_PRIMITIVE_TYPENAMES.table:
+			return {
+				type: 'table',
+				headers: Array.isArray(primitive.headers) ? (primitive.headers as string[]) : [],
+				rows: Array.isArray(primitive.rows) ? (primitive.rows as string[][]) : []
+			}
+		case UX_PRIMITIVE_TYPENAMES.metadataText:
+			return typeof primitive.text === 'string' ? { type: 'text', text: primitive.text } : null
 		default:
 			return null
 	}

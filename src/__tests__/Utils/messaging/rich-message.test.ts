@@ -17,6 +17,10 @@ import {
 	sendLatex,
 	sendLatexInlineImage,
 	captureUnifiedResponse,
+	getPlainTextFromUnifiedResponse,
+	toBase64Primitive,
+	ORICH_WIDGET_TYPENAMES,
+	UX_PRIMITIVE_TYPENAMES,
 	assertSafeUrl,
 	isSafeUrl,
 	sendStatusMentions,
@@ -571,7 +575,8 @@ describe('V2 unified senders', () => {
 		const rich = calls[0]!.content.richResponseMessage
 		expect(rich?.submessages).toHaveLength(2)
 		const unified = JSON.parse(decodeText(rich?.unifiedResponse?.data))
-		expect(unified.sections[0]).toEqual({ type: 'table', title: 'T', headers: ['H'], rows: [['1']] })
+		expect(unified.sections[0]).toMatchObject({ type: 'table', title: 'T', headers: ['H'], rows: [['1']] })
+		expect(unified.primitives[0].__typename).toBe('GenATableUXPrimitive')
 	})
 
 	it('sendCodeBlockV2 emits a v2 code section', async () => {
@@ -579,7 +584,8 @@ describe('V2 unified senders', () => {
 		await sendCodeBlockV2(sock, '628@s.whatsapp.net', 'let a = 1', 'ts')
 
 		const unified = JSON.parse(decodeText(calls[0]!.content.richResponseMessage?.unifiedResponse?.data))
-		expect(unified.sections[0]).toEqual({ type: 'code', language: 'ts', code: 'let a = 1' })
+		expect(unified.sections[0]).toMatchObject({ type: 'code', language: 'ts', code: 'let a = 1' })
+		expect(unified.primitives[0].__typename).toBe('GenAICodeUXPrimitive')
 	})
 
 	it('sendLinkV2 emits a v2 link section', async () => {
@@ -587,7 +593,7 @@ describe('V2 unified senders', () => {
 		await sendLinkV2(sock, '628@s.whatsapp.net', 'https://a', 'A')
 
 		const unified = JSON.parse(decodeText(calls[0]!.content.richResponseMessage?.unifiedResponse?.data))
-		expect(unified.sections[0]).toEqual({ type: 'link', url: 'https://a', title: 'A' })
+		expect(unified.sections[0]).toMatchObject({ type: 'link', url: 'https://a', title: 'A' })
 	})
 
 	it('generateUnifiedContent returns a richResponseMessage envelope', () => {
@@ -1010,5 +1016,274 @@ describe('ORich.addSource overloads', () => {
 		expect(msg.messageContextInfo?.botMetadata?.richResponseSourcesMetadata?.sources?.[0]?.provider).toBe(
 			proto.BotSourcesMetadata.BotSourceItem.SourceProvider.GOOGLE
 		)
+	})
+})
+
+describe('Phase 5: unified sections & view models', () => {
+	const unifiedOf = (builder: RichMessageBuilder) => JSON.parse(captureUnifiedResponse(builder))
+
+	it('addSection defaults __typename and appends', () => {
+		const unified = unifiedOf(new RichMessageBuilder().addSection({ type: 'text', text: 'a' }))
+		expect(unified.sections).toEqual([{ __typename: 'GenAIUnifiedResponseSection', type: 'text', text: 'a' }])
+	})
+
+	it('addSection preserves an explicit __typename', () => {
+		const unified = unifiedOf(new RichMessageBuilder().addSection({ __typename: 'Custom', type: 'x' }))
+		expect(unified.sections[0].__typename).toBe('Custom')
+	})
+
+	it('addSection merges into an existing unified payload', () => {
+		const builder = new RichMessageBuilder()
+			.setUnifiedResponse({ version: 2, sections: [{ type: 'text', text: 'first' }], extras: { a: 1 } })
+			.addSection({ type: 'text', text: 'second' })
+
+		const unified = unifiedOf(builder)
+		expect(unified.sections).toHaveLength(2)
+		expect(unified.sections[1].text).toBe('second')
+		expect(unified.extras).toEqual({ a: 1 })
+	})
+
+	it('addSection carries an explicit __typename into sections', () => {
+		const unified = unifiedOf(
+			new RichMessageBuilder().addSection({ __typename: 'GenAIUnifiedResponseSection', type: 'text', text: 'x' })
+		)
+		expect(unified.sections[0].__typename).toBe('GenAIUnifiedResponseSection')
+		expect(unified.sections[0].text).toBe('x')
+	})
+
+	it('addViewModel defaults to GenAISingleLayoutViewModel', () => {
+		const unified = unifiedOf(new RichMessageBuilder().addViewModel({ title: 'vm' }))
+		expect(unified.viewModels).toEqual([{ __typename: 'GenAISingleLayoutViewModel', title: 'vm' }])
+	})
+
+	it('addViewModel accepts explicit grid/hscroll typenames', () => {
+		const builder = new RichMessageBuilder()
+			.addViewModel({ __typename: 'GenAIGridLayoutViewModel', columns: 2 })
+			.addViewModel({ __typename: 'GenAIHScrollLayoutViewModel', items: [] })
+
+		const unified = unifiedOf(builder)
+		expect(unified.viewModels.map((vm: { __typename: string }) => vm.__typename)).toEqual([
+			'GenAIGridLayoutViewModel',
+			'GenAIHScrollLayoutViewModel'
+		])
+	})
+
+	it('addRawPrimitive adds the payload verbatim', () => {
+		const unified = unifiedOf(new RichMessageBuilder().addRawPrimitive({ __typename: 'Custom', foo: 'bar' }))
+		expect(unified.primitives).toEqual([{ __typename: 'Custom', foo: 'bar' }])
+	})
+
+	it('addActionRow emits suggestion chips as an action row', () => {
+		const unified = unifiedOf(new RichMessageBuilder().addActionRow(['Yes', 'No']))
+		expect(unified.viewModels[0].__typename).toBe('GenAIActionRowLayoutViewModel')
+		expect(unified.viewModels[0].actions).toHaveLength(2)
+		expect(unified.viewModels[0].actions[0].text).toBe('Yes')
+	})
+
+	it('addActionRow accepts object items with extra fields', () => {
+		const unified = unifiedOf(new RichMessageBuilder().addActionRow([{ text: 'Go', payload: { id: 1 } }]))
+		const action = unified.viewModels[0].actions[0]
+		expect(action.text).toBe('Go')
+		expect(action.payload).toEqual({ id: 1 })
+		expect(action.__typename).toBe('GenAIActionPrimitive')
+	})
+})
+
+describe('Phase 5: UX primitives', () => {
+	const unifiedOf = (builder: RichMessageBuilder) => JSON.parse(captureUnifiedResponse(builder))
+
+	it('addDivider emits GenAIDividerPrimitive', () => {
+		expect(unifiedOf(new RichMessageBuilder().addDivider()).primitives[0]).toEqual({
+			__typename: 'GenAIDividerPrimitive'
+		})
+	})
+
+	it('addSpacer emits GenAISpacerPrimitive with height', () => {
+		expect(unifiedOf(new RichMessageBuilder().addSpacer(16)).primitives[0]).toEqual({
+			__typename: 'GenAISpacerPrimitive',
+			height: 16
+		})
+	})
+
+	it('addMetadataText emits GenAIMetadataTextPrimitive', () => {
+		expect(unifiedOf(new RichMessageBuilder().addMetadataText('meta')).primitives[0]).toEqual({
+			__typename: 'GenAIMetadataTextPrimitive',
+			text: 'meta'
+		})
+	})
+
+	it('primitives accumulate in order', () => {
+		const unified = unifiedOf(new RichMessageBuilder().addDivider().addSpacer(8).addMetadataText('m'))
+		expect(unified.primitives.map((p: { __typename: string }) => p.__typename)).toEqual([
+			'GenAIDividerPrimitive',
+			'GenAISpacerPrimitive',
+			'GenAIMetadataTextPrimitive'
+		])
+	})
+
+	it('addSection is available on ORich too', () => {
+		const unified = unifiedOf(new ORich().addSection({ type: 'text', text: 'orich' }))
+		expect(unified.sections[0].text).toBe('orich')
+	})
+})
+
+describe('Phase 5: 3P widget sub-types', () => {
+	const widgetTypeOf = (kind: keyof typeof ORICH_WIDGET_TYPENAMES) => {
+		const unified = JSON.parse(captureUnifiedResponse(new ORich().addWidget({ title: 'W', kind })))
+		return unified.extras.widgets[0].__typename
+	}
+
+	it('maps cta to GenAI3PExtWidgetCTA', () => {
+		expect(widgetTypeOf('cta')).toBe('GenAI3PExtWidgetCTA')
+	})
+
+	it('maps toast to GenAI3PExtWidgetToast', () => {
+		expect(widgetTypeOf('toast')).toBe('GenAI3PExtWidgetToast')
+	})
+
+	it('maps paragraph header variants to GenAI3PExtWidgetStandardHeader', () => {
+		expect(ORICH_WIDGET_TYPENAMES.standard_header).toBe('GenAI3PExtWidgetStandardHeader')
+		expect(widgetTypeOf('standard_header')).toBe('GenAI3PExtWidgetStandardHeader')
+	})
+
+	it('maps every declared kind to a distinct typename', () => {
+		const kinds = Object.keys(ORICH_WIDGET_TYPENAMES) as (keyof typeof ORICH_WIDGET_TYPENAMES)[]
+		const typenames = kinds.map(widgetTypeOf)
+		expect(new Set(typenames).size).toBe(kinds.length)
+
+		for (const typename of typenames) {
+			expect(typename.startsWith('GenAI3PExtWidget')).toBe(true)
+		}
+	})
+
+	it('keeps widgets without a kind as-is', () => {
+		const unified = JSON.parse(captureUnifiedResponse(new ORich().addWidget({ title: 'plain' })))
+		expect(unified.extras.widgets[0].__typename).toBeUndefined()
+	})
+
+	it('does not mutate the caller-provided widget object', () => {
+		const widget = { title: 'W', kind: 'cta' as const }
+		new ORich().addWidget(widget)
+		expect((widget as { __typename?: string }).__typename).toBeUndefined()
+	})
+})
+
+describe('Phase 5: getPlainTextFromUnifiedResponse', () => {
+	it('extracts markdown text', () => {
+		const payload = { version: 2, primitives: [{ __typename: 'GenAIMarkdownTextUXPrimitive', text: 'hello' }] }
+		expect(getPlainTextFromUnifiedResponse(payload as never)).toBe('hello')
+	})
+
+	it('extracts code text', () => {
+		const payload = { version: 2, primitives: [{ __typename: 'GenAICodeUXPrimitive', code: 'let a = 1' }] }
+		expect(getPlainTextFromUnifiedResponse(payload as never)).toBe('let a = 1')
+	})
+
+	it('extracts latex text from formula', () => {
+		const payload = { version: 2, primitives: [{ __typename: 'GenAILatexUXPrimitive', formula: 'x^2' }] }
+		expect(getPlainTextFromUnifiedResponse(payload as never)).toBe('x^2')
+	})
+
+	it('flattens table primitives', () => {
+		const payload = {
+			version: 2,
+			primitives: [{ __typename: 'GenATableUXPrimitive', headers: ['A', 'B'], rows: [['1', '2']] }]
+		}
+		expect(getPlainTextFromUnifiedResponse(payload as never)).toBe('A | B\n1 | 2')
+	})
+
+	it('unwraps base64-encoded primitives', () => {
+		const item = toBase64Primitive({ __typename: 'GenAIMarkdownTextUXPrimitive', text: 'b64' })
+		const payload = { version: 2, primitives: [item] }
+		expect(getPlainTextFromUnifiedResponse(payload as never)).toBe('b64')
+	})
+
+	it('falls back to section text', () => {
+		const payload = { version: 2, primitives: [], sections: [{ type: 'text', text: 'from section' }] }
+		expect(getPlainTextFromUnifiedResponse(payload as never)).toBe('from section')
+	})
+
+	it('accepts a JSON string and a Uint8Array', () => {
+		const json = JSON.stringify({ version: 2, primitives: [{ __typename: 'GenAIMarkdownTextUXPrimitive', text: 's' }] })
+		expect(getPlainTextFromUnifiedResponse(json)).toBe('s')
+		expect(getPlainTextFromUnifiedResponse(new TextEncoder().encode(json))).toBe('s')
+	})
+
+	it('returns the raw input for non-JSON strings', () => {
+		expect(getPlainTextFromUnifiedResponse('plain text')).toBe('plain text')
+	})
+
+	it('returns "" for an empty payload', () => {
+		expect(getPlainTextFromUnifiedResponse({ version: 2 } as never)).toBe('')
+	})
+
+	it('extracts metadata text primitives', () => {
+		const payload = { version: 2, primitives: [{ __typename: 'GenAIMetadataTextPrimitive', text: 'meta' }] }
+		expect(getPlainTextFromUnifiedResponse(payload as never)).toBe('meta')
+	})
+
+	it('capitalises the primitive typenames it understands', () => {
+		expect(UX_PRIMITIVE_TYPENAMES.markdown).toBe('GenAIMarkdownTextUXPrimitive')
+		expect(UX_PRIMITIVE_TYPENAMES.code).toBe('GenAICodeUXPrimitive')
+		expect(UX_PRIMITIVE_TYPENAMES.latex).toBe('GenAILatexUXPrimitive')
+		expect(UX_PRIMITIVE_TYPENAMES.table).toBe('GenATableUXPrimitive')
+	})
+})
+
+describe('Phase 5: V2 senders emit typed primitives', () => {
+	it('sendTableV2 primitive carries GenATableUXPrimitive + base64', async () => {
+		const { sock, calls } = makeMockSock()
+		await sendTableV2(sock, '628@s.whatsapp.net', 'T', ['H'], [['1']])
+
+		const unified = JSON.parse(decodeText(calls[0]!.content.richResponseMessage?.unifiedResponse?.data))
+		const primitive = unified.primitives[0]
+		expect(primitive.__typename).toBe('GenATableUXPrimitive')
+		expect(typeof primitive.base64).toBe('string')
+
+		const decoded = JSON.parse(Buffer.from(primitive.base64, 'base64').toString('utf8'))
+		expect(decoded.headers).toEqual(['H'])
+		expect(decoded.rows).toEqual([['1']])
+	})
+
+	it('sendCodeBlockV2 primitive carries GenAICodeUXPrimitive + token blocks', async () => {
+		const { sock, calls } = makeMockSock()
+		await sendCodeBlockV2(sock, '628@s.whatsapp.net', 'const a = 1', 'js')
+
+		const unified = JSON.parse(decodeText(calls[0]!.content.richResponseMessage?.unifiedResponse?.data))
+		const primitive = unified.primitives[0]
+		expect(primitive.__typename).toBe('GenAICodeUXPrimitive')
+
+		const decoded = JSON.parse(Buffer.from(primitive.base64, 'base64').toString('utf8'))
+		expect(decoded.language).toBe('js')
+		expect(decoded.code).toBe('const a = 1')
+		expect(decoded.blocks.some((b: { type: string }) => b.type === 'KEYWORD')).toBe(true)
+	})
+
+	it('plain-text extraction works on sendTableV2 output', async () => {
+		const { sock, calls } = makeMockSock()
+		await sendTableV2(sock, '628@s.whatsapp.net', 'T', ['H'], [['1']])
+
+		const unified = JSON.parse(decodeText(calls[0]!.content.richResponseMessage?.unifiedResponse?.data))
+		expect(getPlainTextFromUnifiedResponse(unified)).toBe('H\n1')
+	})
+})
+
+describe('Phase 5: reader handles V2 primitives without duplicates', () => {
+	it('does not duplicate table blocks already present as submessages', async () => {
+		const { sock, calls } = makeMockSock()
+		await sendTableV2(sock, '628@s.whatsapp.net', 'T', ['H'], [['1']])
+
+		const parsed = readRichMessage(calls[0]!.content)
+		expect(parsed?.blocks.filter(block => block.type === 'table')).toHaveLength(1)
+	})
+
+	it('surfaces primitives for a V2-only message', () => {
+		const content = generateUnifiedContent({
+			version: 2,
+			primitives: [{ type: 'text', __typename: 'GenAIMarkdownTextUXPrimitive', text: 'only v2' }]
+		})
+
+		const parsed = readRichMessage(content)
+		expect(parsed?.blocks[0]).toEqual({ type: 'text', text: 'only v2' })
 	})
 })
