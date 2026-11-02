@@ -3,6 +3,19 @@ import type { WAMessage, MessageRelayOptions } from '../../Types'
 import { jidNormalizedUser } from '../../WABinary/jid-utils'
 import { generateMessageIDV2 } from '../generics'
 import { prepareWAMessageMedia } from '../messages'
+
+/**
+ * Media preparer seam. Production uses the real `prepareWAMessageMedia`; unit
+ * tests override it to avoid ffmpeg/network. Not part of the public API.
+ */
+type MediaPreparer = typeof prepareWAMessageMedia
+// Lazily resolved to avoid a circular-import TDZ (messages <-> messaging/index).
+let mediaPreparerOverride: MediaPreparer | null = null
+const getMediaPreparer = (): MediaPreparer => mediaPreparerOverride ?? prepareWAMessageMedia
+
+export function __setMediaPreparer(fn: MediaPreparer | null): void {
+	mediaPreparerOverride = fn
+}
 import type { FurinaSocket } from './types'
 
 export interface RichMessageSendOptions extends MessageRelayOptions {
@@ -815,6 +828,40 @@ export class RichMessageBuilder {
 		return this.addRawPrimitive({ __typename: 'GenAISpacerPrimitive', height: spacing, spacing })
 	}
 
+	// ── Phase 7 primitives ───────────────────────────────────────────────
+	addImagine(prompt: string): this {
+		return this.addRawPrimitive({ __typename: 'GenAIImaginePrimitive', prompt })
+	}
+
+	/**
+	 * Footer action primitive. `url` is optional so callers can build an
+	 * action that only carries a label/id (e.g. a client-side handler).
+	 */
+	addFooterAction(action: { label: string; url?: string; id?: string; [key: string]: unknown }): this {
+		return this.addRawPrimitive({
+			__typename: 'GenAIFooterActionPrimitive',
+			...action,
+			...(action.url ? { url: assertSafeUrl(action.url) } : {})
+		})
+	}
+
+	addProductItem(product: {
+		title: string
+		price?: number | string
+		imageUrl?: string
+		url?: string
+		[_: string]: unknown
+	}): this {
+		const imageUrl = product.imageUrl ? assertSafeUrl(product.imageUrl) : undefined
+		const url = product.url ? assertSafeUrl(product.url) : undefined
+		return this.addRawPrimitive({
+			__typename: 'GenAIProductItemCardPrimitive',
+			...product,
+			...(imageUrl ? { imageUrl } : {}),
+			...(url ? { url } : {})
+		})
+	}
+
 	// ── citation / inline link ───────────────────────────────────────────
 	addCitation(url: string): this {
 		const safeUrl = assertSafeUrl(url)
@@ -1217,6 +1264,111 @@ export const buildButtonsContent = (buttons: RichButton[]): proto.IMessage => ({
 	}
 })
 
+// ── embedded screens (A2UI) ──────────────────────────────────────────────
+export interface EmbeddedSectionOptions {
+	/** section kind/typename, e.g. GenAIMarkdownTextUXPrimitive */
+	type?: string
+	[key: string]: unknown
+}
+
+export interface EmbeddedTabOptions {
+	id: string
+	tabHeader: string
+	sections?: EmbeddedSectionOptions[]
+	[key: string]: unknown
+}
+
+export interface EmbeddedScreenOptions {
+	title: string
+	id?: string
+	sections?: EmbeddedSectionOptions[]
+	tabs?: EmbeddedTabOptions[]
+	footerActions?: Record<string, unknown>[]
+	[key: string]: unknown
+}
+
+const EMBEDDED_TYPE_TYPENAME = 'FOAEmbeddedScreenContentTabbed'
+
+/** Validates urls inside an embedded section, then stamps its `__typename`. */
+const buildEmbeddedSection = (section: EmbeddedSectionOptions): Record<string, unknown> => {
+	const next: Record<string, unknown> = { ...section }
+
+	for (const key of ['url', 'imageUrl', 'icon', 'iconUrl', 'fallbackUrl'] as const) {
+		const value = next[key]
+		if (typeof value === 'string' && value.length > 0) {
+			next[key] = assertSafeUrl(value)
+		}
+	}
+
+	// Templated sections may embed a nested form; validate its actions too.
+	if (Array.isArray(next.footerActions)) {
+		next.footerActions = (next.footerActions as Record<string, unknown>[]).map(action => {
+			const copy = { ...action }
+			if (typeof copy.url === 'string' && copy.url.length > 0) {
+				copy.url = assertSafeUrl(copy.url)
+			}
+			return copy
+		})
+	}
+
+	if (!next.__typename) {
+		next.__typename = section.type ?? 'GenAIMarkdownTextUXPrimitive'
+	}
+
+	return next
+}
+
+const buildEmbeddedTabsView = (tabs: EmbeddedTabOptions[]): { tabs: Record<string, unknown>[] } => ({
+	tabs: tabs.map(tab => ({
+		...tab,
+		__typename: 'FOAEmbeddedScreenTab',
+		sections: (tab.sections ?? []).map(buildEmbeddedSection)
+	})) satisfies Record<string, unknown>[]
+})
+
+/**
+ * Extracts the tab list out of an embedded-screen primitive. Accepts either
+ * the raw primitive or a full unified payload.
+ */
+export function readEmbeddedTabs(
+	screen: Record<string, unknown> | { primitives?: Record<string, unknown>[] } | undefined
+): Record<string, unknown>[] {
+	const target = unwrapEmbeddedScreen(screen)
+	const tabs = target?.tabs
+	return Array.isArray(tabs) ? (tabs as Record<string, unknown>[]) : []
+}
+
+/** Flattens every section across all tabs of an embedded screen. */
+export function readEmbeddedSections(
+	screen: Record<string, unknown> | { primitives?: Record<string, unknown>[] } | undefined
+): Record<string, unknown>[] {
+	return readEmbeddedTabs(screen).flatMap(tab => {
+		const sections = tab.sections
+		return Array.isArray(sections) ? (sections as Record<string, unknown>[]) : []
+	})
+}
+
+const unwrapEmbeddedScreen = (
+	screen: Record<string, unknown> | { primitives?: Record<string, unknown>[] } | undefined
+): Record<string, unknown> | undefined => {
+	if (!screen || typeof screen !== 'object') return undefined
+	const direct = screen as Record<string, unknown>
+	if (direct.__typename === EMBEDDED_TYPE_TYPENAME || Array.isArray(direct.tabs)) {
+		return unwrapPrimitive(direct)
+	}
+
+	const primitives = (screen as { primitives?: unknown }).primitives
+	if (Array.isArray(primitives)) {
+		for (const primitive of primitives) {
+			if (!primitive || typeof primitive !== 'object') continue
+			const unwrapped = unwrapPrimitive(primitive as Record<string, unknown>)
+			if (unwrapped.__typename === EMBEDDED_TYPE_TYPENAME) return unwrapped
+		}
+	}
+
+	return undefined
+}
+
 export class ORich extends RichMessageBuilder {
 	private sources: ORichSource[] = []
 	private metadata: Partial<proto.IBotMetadata> = {}
@@ -1241,6 +1393,39 @@ export class ORich extends RichMessageBuilder {
 	addFOABloksSection(bloksData: Record<string, unknown> | string): this {
 		const data = typeof bloksData === 'string' ? bloksData : JSON.stringify(bloksData)
 		return this.addRawPrimitive({ __typename: 'FOABloksPrimitive', data })
+	}
+
+	addMetaSubsQuotaUpsell(data: Record<string, unknown>): this {
+		return this.addRawPrimitive({ __typename: 'GenAIMetaSubsQuotaUpsellPrimitive', ...data })
+	}
+
+	// ── embedded screens (A2UI) ──────────────────────────────────────────
+	/** Builds a tabbed embedded screen primitive from tabs (or a single section list). */
+	embeddedScreen(screen: EmbeddedScreenOptions): this {
+		const tabs =
+			screen.tabs && screen.tabs.length > 0
+				? screen.tabs
+				: [
+						{
+							id: screen.id ?? 'tab-0',
+							tabHeader: screen.title,
+							sections: screen.sections ?? []
+						}
+					]
+
+		const view = buildEmbeddedTabsView(tabs)
+
+		return this.addRawPrimitive({
+			__typename: 'FOAEmbeddedScreenContentTabbed',
+			title: screen.title,
+			...(screen.id ? { id: screen.id } : {}),
+			tabs: view.tabs,
+			...(screen.footerActions ? { footerActions: screen.footerActions } : {})
+		})
+	}
+
+	embeddedTab(tab: EmbeddedTabOptions): this {
+		return this.embeddedScreen({ title: tab.tabHeader, tabs: [tab] })
 	}
 
 	/**
@@ -1355,8 +1540,10 @@ export class ORich extends RichMessageBuilder {
 		return this
 	}
 
-	addFooterAction(action: ORichFooterAction): this {
-		super.addLink(action.url, action.label)
+	addFooterAction(action: { label: string; url?: string; [key: string]: unknown }): this {
+		super.addFooterAction(action)
+		// Keep the visible link (when a url is present) for the rich body.
+		if (action.url) super.addLink(action.url, action.label)
 		this.extras.footerActions = [...((this.extras.footerActions as unknown[]) ?? []), action]
 		return this
 	}
@@ -1550,6 +1737,257 @@ export function sendMarkdown(
 	const builder = new RichMessageBuilder().addMarkdown(markdown)
 	return sendRichMessage(sock, jid, builder, { ...(opts ?? {}), quoted })
 }
+
+// ── markdown DSL parser ──────────────────────────────────────────────────
+type MarkdownDirectiveName = 'suggest' | 'product' | 'reels' | 'post' | 'tip' | 'widget' | 'footerAction'
+
+interface MarkdownDirective {
+	name: MarkdownDirectiveName
+	attrs: Record<string, string>
+	body: string[]
+}
+
+/** Parses `key=value` or bare tokens from a directive header. */
+const parseDirectiveAttrs = (header: string): Record<string, string> => {
+	const attrs: Record<string, string> = {}
+	const pattern = /(\w+)=(?:"([^"]*)"|'([^']*)'|([^\s]+))|(\S+)/g
+	let match: RegExpExecArray | null
+
+	while ((match = pattern.exec(header)) !== null) {
+		if (match[1]) {
+			attrs[match[1]] = match[2] ?? match[3] ?? match[4] ?? ''
+		} else if (match[5]) {
+			attrs.value = attrs.value ? `${attrs.value} ${match[5]}` : match[5]
+		}
+	}
+
+	return attrs
+}
+
+const isDirectiveName = (name: string): name is MarkdownDirectiveName =>
+	['suggest', 'product', 'reels', 'post', 'tip', 'widget', 'footerAction'].includes(name)
+
+const collectDirectiveBody = (lines: string[], start: number): { body: string[]; next: number } => {
+	const body: string[] = []
+	let i = start
+	while (i < lines.length) {
+		const trimmed = (lines[i] ?? '').trim()
+		if (trimmed === ':::') break
+		body.push(lines[i] ?? '')
+		i++
+	}
+
+	return { body, next: trimmedAt(lines, i) }
+}
+
+const trimmedAt = (lines: string[], i: number): number => {
+	// skip the closing `:::` marker when present
+	if ((lines[i] ?? '').trim() === ':::') return i + 1
+	return i
+}
+
+const applyDirective = (builder: ORich, directive: MarkdownDirective): void => {
+	const { name, attrs, body } = directive
+	const text = body.join('\n').trim()
+
+	switch (name) {
+		case 'suggest':
+			builder.addSuggestions(
+				text
+					.split('\n')
+					.map(line => line.replace(/^[-*+]\s+/, '').trim())
+					.filter(Boolean)
+			)
+			return
+		case 'product':
+			builder.addProductItem({
+				title: attrs.title ?? text.split('\n')[0] ?? 'Product',
+				price: attrs.price,
+				imageUrl: attrs.imageUrl ?? attrs.image,
+				url: attrs.url
+			})
+			return
+		case 'reels':
+			builder.addReels(
+				text
+					.split('\n')
+					.map(line => line.trim())
+					.filter(Boolean)
+					.map(line => {
+						const [url, caption] = line.split(/\s+\|\s+|\s+/)
+						return { url: url ?? '', caption }
+					})
+					.filter(item => item.url.length > 0)
+			)
+			return
+		case 'post':
+			builder.addPost({
+				title: attrs.title ?? text.split('\n')[0] ?? 'Post',
+				url: attrs.url ?? '',
+				author: attrs.author,
+				thumbnailUrl: attrs.imageUrl ?? attrs.image
+			})
+			return
+		case 'tip':
+			builder.addTip(text, attrs.title ? { title: attrs.title } : {})
+			return
+		case 'widget':
+			builder.addWidget({
+				title: attrs.title ?? text.split('\n')[0] ?? 'Widget',
+				url: attrs.url,
+				type: attrs.type,
+				kind: attrs.kind as ORichWidgetKind | undefined
+			})
+			return
+		case 'footerAction':
+			builder.addFooterAction({ label: attrs.label ?? (text || 'Action'), url: attrs.url })
+			return
+	}
+}
+
+/**
+ * Parses a rich-markdown DSL into an ORich builder.
+ *
+ * Supports headings, bold/italic/inline code, fenced code, tables, lists and
+ * `:::` directives (suggest, product, reels, post, tip, widget, footerAction).
+ * Returns an `ORich` (a `RichMessageBuilder` subclass) so directive-produced
+ * extras (products/posts/tips/widgets) are retained in the unified payload.
+ */
+export function parseRichMarkdown(markdown: string): ORich {
+	const builder = new ORich()
+	const lines = markdown.split(/\r?\n/)
+	let i = 0
+
+	while (i < lines.length) {
+		const raw = lines[i] ?? ''
+		const trimmed = raw.trim()
+
+		const directiveStart = /^:::\s*([\w-]+)(.*)$/.exec(trimmed)
+		if (directiveStart && isDirectiveName(directiveStart[1] ?? '')) {
+			const name = directiveStart[1] as MarkdownDirectiveName
+			const attrs = parseDirectiveAttrs((directiveStart[2] ?? '').trim())
+			const { body, next } = collectDirectiveBody(lines, i + 1)
+			applyDirective(builder, { name, attrs, body })
+			i = next
+			continue
+		}
+
+		// A bare `:::` opener/closer is ignored.
+		if (trimmed === ':::') {
+			i++
+			continue
+		}
+
+		// Unknown directives are kept verbatim as a plain paragraph so the
+		// parser never stalls on an unrecognised block.
+		if (/^:::\s*[\w-]+/.test(trimmed)) {
+			const body: string[] = [raw]
+			i++
+			while (i < lines.length) {
+				const current = (lines[i] ?? '').trim()
+				if (current === ':::') {
+					i++
+					break
+				}
+				body.push(lines[i] ?? '')
+				i++
+			}
+
+			builder.addText(body.join('\n').trim())
+			continue
+		}
+
+		const fence = /^(`{3,}|~{3,})\s*([\w+#.-]*)\s*$/.exec(trimmed)
+		if (fence) {
+			const token = (fence[1] ?? '```').slice(0, 3)
+			const language = fence[2] || 'text'
+			const body: string[] = []
+			i++
+			while (i < lines.length) {
+				if ((lines[i] ?? '').trim().startsWith(token)) {
+					i++
+					break
+				}
+				body.push(lines[i] ?? '')
+				i++
+			}
+			builder.addCodeBlock(body.join('\n'), language)
+			continue
+		}
+
+		if (trimmed.startsWith('|') && trimmed.endsWith('|')) {
+			const tableLines: string[] = []
+			while (i < lines.length) {
+				const current = (lines[i] ?? '').trim()
+				if (!(current.startsWith('|') && current.endsWith('|'))) break
+				tableLines.push(current)
+				i++
+			}
+
+			const cells = tableLines.map(splitTableRow)
+			const hasSeparator = cells.length >= 2 && isSeparatorRow(cells[1] ?? [])
+			builder.addTable(hasSeparator ? (cells[0] ?? []) : [], hasSeparator ? cells.slice(2) : cells)
+			continue
+		}
+
+		const listMatch = /^(\s*)([-*+]|\d+[.)])\s+(.*)$/.exec(raw)
+		if (listMatch) {
+			const items: string[] = []
+			while (i < lines.length) {
+				const item = /^(\s*)([-*+]|\d+[.)])\s+(.*)$/.exec(lines[i] ?? '')
+				if (!item) break
+				items.push(item[3] ?? '')
+				i++
+			}
+			builder.addList(items)
+			continue
+		}
+
+		const heading = /^(#{1,6})\s+(.*)$/.exec(trimmed)
+		if (heading) {
+			builder.addText(inlineMarkdownToPlain(heading[2] ?? ''))
+			i++
+			continue
+		}
+
+		if (trimmed === '') {
+			i++
+			continue
+		}
+
+		const paragraph: string[] = []
+		while (i < lines.length) {
+			const current = (lines[i] ?? '').trim()
+			if (current === '') break
+			if (/^(`{3,}|~{3,})/.test(current)) break
+			if (current.startsWith('|') && current.endsWith('|')) break
+			if (/^(\s*)([-*+]|\d+[.)])\s+/.test(lines[i] ?? '')) break
+			if (/^#{1,6}\s+/.test(current)) break
+			if (/^:::\s*[\w-]+/.test(current)) break
+			paragraph.push(inlineMarkdownToPlain(current))
+			i++
+		}
+
+		if (paragraph.length > 0) {
+			builder.addText(paragraph.join('\n'))
+		}
+	}
+
+	return builder
+}
+
+/**
+ * Strips inline markdown emphasis down to plain text. WhatsApp renders rich
+ * text itself, so the builder only needs the visible characters.
+ */
+export const inlineMarkdownToPlain = (text: string): string =>
+	text
+		.replace(/`([^`]+)`/g, '$1')
+		.replace(/\*\*([^*]+)\*\*/g, '$1')
+		.replace(/__([^_]+)__/g, '$1')
+		.replace(/\*([^*]+)\*/g, '$1')
+		.replace(/_([^_]+)_/g, '$1')
+		.trim()
 
 // ── V2 (unified sections) senders ────────────────────────────────────────
 export function generateUnifiedContent(payload: UnifiedPayload): proto.IMessage {
@@ -1833,9 +2271,62 @@ export function sendRichHtml(
 }
 
 // ── status mentions ──────────────────────────────────────────────────────
+/** Status content object, matching the @innovatorssoft/baileys shape. */
+export interface StatusMediaContent {
+	image?: string | Buffer
+	video?: string | Buffer
+	audio?: string | Buffer
+	text?: string
+	textColor?: string
+	backgroundColor?: string
+}
+
+const isStatusMediaContent = (value: unknown): value is StatusMediaContent =>
+	!!value &&
+	typeof value === 'object' &&
+	!Array.isArray(value) &&
+	!('richResponseMessage' in (value as Record<string, unknown>)) &&
+	['image', 'video', 'audio', 'text'].some(key => key in (value as Record<string, unknown>))
+
+const statusToMessage = async (sock: FurinaSocket, status: StatusMediaContent): Promise<proto.IMessage> => {
+	if (status.image || status.video || status.audio) {
+		const mediaType = status.video ? 'video' : status.audio ? 'audio' : 'image'
+		const media = status.video ?? status.audio ?? status.image
+		const mediaContent = {
+			[mediaType]: media,
+			...(status.text ? { caption: status.text } : {})
+		} as Parameters<MediaPreparer>[0]
+		const prepared = await getMediaPreparer()(mediaContent, { upload: sock.waUploadToServer })
+
+		const key: 'imageMessage' | 'videoMessage' | 'audioMessage' = `${mediaType}Message`
+		// Media messages in this proto carry no ARGB colour fields; colours only
+		// apply to text statuses (handled below).
+		return { [key]: prepared[key] }
+	}
+
+	return {
+		extendedTextMessage: {
+			text: status.text ?? '',
+			...(status.textColor || status.backgroundColor
+				? {
+						textArgb: parseStatusColor(status.textColor),
+						backgroundArgb: parseStatusColor(status.backgroundColor)
+					}
+				: {})
+		}
+	}
+}
+
+const parseStatusColor = (color?: string): number | undefined => {
+	if (!color) return undefined
+	const hex = color.replace(/^#/, '')
+	if (!/^[0-9a-fA-F]{6}([0-9a-fA-F]{2})?$/.test(hex)) return undefined
+	return parseInt(hex.length === 6 ? `ff${hex}` : hex, 16) >>> 0
+}
+
 export async function sendStatusMentions(
 	sock: FurinaSocket,
-	content: proto.IMessage | RichMessageBuilder | string,
+	content: proto.IMessage | RichMessageBuilder | string | StatusMediaContent,
 	jids: string[],
 	options: RichMessageSendOptions = {}
 ): Promise<WAMessage> {
@@ -1847,6 +2338,8 @@ export async function sendStatusMentions(
 	} else if (content instanceof RichMessageBuilder) {
 		message = content.build()
 		applyQuotedContext(message, options.quoted)
+	} else if (isStatusMediaContent(content)) {
+		message = await statusToMessage(sock, content)
 	} else {
 		message = content
 	}
@@ -1855,6 +2348,96 @@ export async function sendStatusMentions(
 		...options,
 		statusJidList: normalized
 	})
+}
+
+// ── AIRich envelope ──────────────────────────────────────────────────────
+/** Decodes the (possibly base64-wrapped) unified payload into readable JSON. */
+export function decodeAIRich(message: proto.IMessage): Record<string, unknown> | null {
+	const rich = getRichResponse(unwrapMessage(message))
+	const data = rich?.unifiedResponse?.data
+	if (!data || data.length === 0) return null
+
+	const text = new TextDecoder().decode(data)
+
+	try {
+		return JSON.parse(text) as Record<string, unknown>
+	} catch {
+		// Some senders base64-wrap the JSON body; try that as a fallback.
+		try {
+			return JSON.parse(Buffer.from(text, 'base64').toString('utf8')) as Record<string, unknown>
+		} catch {
+			return null
+		}
+	}
+}
+
+export interface AIRichMessageOptions {
+	sections?: Record<string, unknown>[]
+	text?: string
+	nativeFlow?: { buttons?: unknown[]; [key: string]: unknown }
+	submessages?: proto.IAIRichResponseSubMessage[]
+	unified?: UnifiedPayload
+}
+
+/**
+ * Wraps rich content in a `botForwardedMessage` envelope. Sections/text are
+ * merged into a V2 unified payload; native-flow buttons and raw submessages
+ * are preserved.
+ */
+export function buildAIRichMessage(options: AIRichMessageOptions): proto.IMessage {
+	const builder = new RichMessageBuilder().wrapInBotForwarded()
+
+	if (options.text) builder.addText(options.text)
+
+	const submessages: proto.IAIRichResponseSubMessage[] = [...(options.submessages ?? [])]
+
+	if (options.nativeFlow?.buttons?.length) {
+		const buttons = options.nativeFlow.buttons as RichButton[]
+		const content = buildButtonsContent(buttons)
+		submessages.push({
+			messageType: proto.AIRichResponseSubMessageType.AI_RICH_RESPONSE_TEXT,
+			messageText: JSON.stringify(content.interactiveMessage?.nativeFlowMessage ?? {})
+		})
+	}
+
+	if (submessages.length > 0) {
+		const content = builder.build()
+		const rich = getRichResponse(content)
+		if (rich) {
+			rich.submessages = [...(rich.submessages ?? []), ...submessages]
+		}
+
+		if (options.sections?.length) {
+			const existing = decodeUnified(rich?.unifiedResponse?.data) ?? { version: 2 }
+			const sections = [...(existing.sections ?? []), ...options.sections.map(withSectionTypename)]
+			rich!.unifiedResponse = { data: encodeUnified({ ...existing, version: 2, sections }) }
+		}
+
+		return content
+	}
+
+	for (const section of options.sections ?? []) {
+		builder.addSection(section)
+	}
+
+	if (options.unified) builder.setUnifiedResponse(options.unified)
+
+	return builder.build()
+}
+
+const withSectionTypename = (section: Record<string, unknown>): Record<string, unknown> =>
+	section.__typename ? section : { __typename: SECTION_TYPENAME, ...section }
+
+export async function sendAIRichMessage(
+	sock: FurinaSocket,
+	jid: string,
+	options: AIRichMessageOptions,
+	sendOptions: RichMessageSendOptions = {}
+): Promise<WAMessage> {
+	const normalizedJid = normalizeJidOrThrow(jid)
+	const content = buildAIRichMessage(options)
+	applyQuotedContext(content, sendOptions.quoted)
+	return sock.relayMessage(normalizedJid, content, sendOptions)
 }
 
 // ── album messages ───────────────────────────────────────────────────────
@@ -1911,7 +2494,7 @@ const toMediaContent = async (
 ): Promise<proto.IMessage> => {
 	const isVideo = isVideoMedia(media)
 	const source = Buffer.isBuffer(media) ? media : { url: media }
-	const prepared = await prepareWAMessageMedia(isVideo ? { video: source, caption } : { image: source, caption }, {
+	const prepared = await getMediaPreparer()(isVideo ? { video: source, caption } : { image: source, caption }, {
 		upload: sock.waUploadToServer
 	})
 
