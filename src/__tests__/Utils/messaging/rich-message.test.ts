@@ -1,4 +1,12 @@
+import { jest } from '@jest/globals'
 import { proto } from '../../../../WAProto'
+
+// Album tests must not touch the network/ffmpeg; stub the media uploader.
+jest.mock('../../../Utils/messages', () => ({
+	prepareWAMessageMedia: jest.fn(async (content: { caption?: string }) =>
+		'video' in content ? { videoMessage: { caption: content.caption } } : { imageMessage: { caption: content.caption } }
+	)
+}))
 import {
 	ORich,
 	RichMessageBuilder,
@@ -14,6 +22,11 @@ import {
 	sendMarkdown,
 	sendRichHtml,
 	sendRichMessage,
+	sendORichMessage,
+	sendAlbum,
+	buildAlbumMessage,
+	buildButtonsContent,
+	toNativeFlowButton,
 	sendLatex,
 	sendLatexInlineImage,
 	captureUnifiedResponse,
@@ -1285,5 +1298,353 @@ describe('Phase 5: reader handles V2 primitives without duplicates', () => {
 
 		const parsed = readRichMessage(content)
 		expect(parsed?.blocks[0]).toEqual({ type: 'text', text: 'only v2' })
+	})
+})
+
+describe('Phase 6: layout stacks', () => {
+	const unifiedOf = (builder: RichMessageBuilder) => JSON.parse(captureUnifiedResponse(builder))
+
+	it('addHStack wraps children in GenAIHStackLayoutViewModel', () => {
+		const unified = unifiedOf(
+			new RichMessageBuilder().addHStack([{ __typename: 'GenAISingleLayoutViewModel', title: 'a' }])
+		)
+		expect(unified.viewModels[0].__typename).toBe('GenAIHStackLayoutViewModel')
+		expect(unified.viewModels[0].children).toHaveLength(1)
+		expect(unified.viewModels[0].children[0].title).toBe('a')
+	})
+
+	it('addVStack wraps children in GenAIVStackLayoutViewModel', () => {
+		const unified = unifiedOf(new RichMessageBuilder().addVStack([{ title: 'b' }]))
+		expect(unified.viewModels[0].__typename).toBe('GenAIVStackLayoutViewModel')
+		expect(unified.viewModels[0].children[0].title).toBe('b')
+	})
+
+	it('validates urls inside stack children (nested)', () => {
+		expect(() => new RichMessageBuilder().addHStack([{ children: [{ url: 'javascript:alert(1)' }] }])).toThrow(
+			/protokol tidak diizinkan/
+		)
+	})
+
+	it('accepts safe urls inside stack children', () => {
+		const unified = unifiedOf(new RichMessageBuilder().addVStack([{ imageUrl: 'https://cdn/x.png' }]))
+		expect(unified.viewModels[0].children[0].imageUrl).toBe('https://cdn/x.png')
+	})
+
+	it('is available on ORich', () => {
+		const unified = unifiedOf(new ORich().addHStack([{ title: 'x' }]).addVStack([{ title: 'y' }]))
+		expect(unified.viewModels.map((vm: { __typename: string }) => vm.__typename)).toEqual([
+			'GenAIHStackLayoutViewModel',
+			'GenAIVStackLayoutViewModel'
+		])
+	})
+})
+
+describe('Phase 6: section shortcuts', () => {
+	const primitivesOf = (builder: RichMessageBuilder) => JSON.parse(captureUnifiedResponse(builder)).primitives ?? []
+
+	it('addTaskSection emits GenAITaskPrimitive', () => {
+		const [primitive] = primitivesOf(
+			new RichMessageBuilder().addTaskSection({ taskId: 't1', title: 'Do it', subtitle: 'now', status: 'pending' })
+		)
+		expect(primitive.__typename).toBe('GenAITaskPrimitive')
+		expect(primitive.taskId).toBe('t1')
+		expect(primitive.title).toBe('Do it')
+		expect(primitive.subtitle).toBe('now')
+		expect(primitive.status).toBe('pending')
+	})
+
+	it('addThinkingSection emits GenAIBotThinkingStatusPrimitive', () => {
+		const [primitive] = primitivesOf(
+			new RichMessageBuilder().addThinkingSection('Thinking', {
+				icon: 'https://cdn/i.png',
+				isInProgress: true,
+				metaSearchApps: ['web'],
+				thoughtDurationSec: 3
+			})
+		)
+		expect(primitive.__typename).toBe('GenAIBotThinkingStatusPrimitive')
+		expect(primitive.title).toBe('Thinking')
+		expect(primitive.icon).toBe('https://cdn/i.png')
+		expect(primitive.isInProgress).toBe(true)
+		expect(primitive.metaSearchApps).toEqual(['web'])
+		expect(primitive.thoughtDurationSec).toBe(3)
+	})
+
+	it('addThinkingSection rejects a dangerous icon url', () => {
+		expect(() => new RichMessageBuilder().addThinkingSection('x', { icon: 'javascript:alert(1)' })).toThrow(
+			/protokol tidak diizinkan/
+		)
+	})
+
+	it('addProgressSection emits GenAIBotProgressStatusPrimitive', () => {
+		const [primitive] = primitivesOf(new RichMessageBuilder().addProgressSection('Working', { inProgress: true }))
+		expect(primitive.__typename).toBe('GenAIBotProgressStatusPrimitive')
+		expect(primitive.title).toBe('Working')
+		expect(primitive.inProgress).toBe(true)
+	})
+
+	it('addImageSection emits GenAIImagePrimitive and validates urls', () => {
+		const [primitive] = primitivesOf(
+			new RichMessageBuilder().addImageSection('https://cdn/a.png', { fallbackUrl: 'https://cdn/b.png' })
+		)
+		expect(primitive.__typename).toBe('GenAIImagePrimitive')
+		expect(primitive.url).toBe('https://cdn/a.png')
+		expect(primitive.fallbackUrl).toBe('https://cdn/b.png')
+
+		expect(() => new RichMessageBuilder().addImageSection('data:text/html,x')).toThrow(/protokol tidak diizinkan/)
+		expect(() =>
+			new RichMessageBuilder().addImageSection('https://cdn/a.png', { fallbackUrl: 'file:///etc/passwd' })
+		).toThrow(/protokol tidak diizinkan/)
+	})
+
+	it('addLatexSection emits GenAILatexUXPrimitive', () => {
+		const [primitive] = primitivesOf(new RichMessageBuilder().addLatexSection('a^2'))
+		expect(primitive.__typename).toBe('GenAILatexUXPrimitive')
+		expect(primitive.formula).toBe('a^2')
+	})
+
+	it('addDividerSection emits GenAIDividerPrimitive', () => {
+		expect(primitivesOf(new RichMessageBuilder().addDividerSection())[0].__typename).toBe('GenAIDividerPrimitive')
+	})
+
+	it('addSpacerSection emits GenAISpacerPrimitive', () => {
+		const [primitive] = primitivesOf(new RichMessageBuilder().addSpacerSection(24))
+		expect(primitive.__typename).toBe('GenAISpacerPrimitive')
+		expect(primitive.spacing).toBe(24)
+	})
+})
+
+describe('Phase 6: citations & inline links', () => {
+	it('addCitation appends GenAISearchCitationItem', () => {
+		const unified = JSON.parse(captureUnifiedResponse(new RichMessageBuilder().addCitation('https://a.com')))
+		expect(unified.citations).toEqual([{ __typename: 'GenAISearchCitationItem', url: 'https://a.com' }])
+	})
+
+	it('addCitation rejects dangerous urls', () => {
+		expect(() => new RichMessageBuilder().addCitation('javascript:alert(1)')).toThrow(/protokol tidak diizinkan/)
+	})
+
+	it('addInlineLink appends GenAIInlineLinkItem', () => {
+		const unified = JSON.parse(
+			captureUnifiedResponse(new RichMessageBuilder().addInlineLink('Docs', 'https://docs.com'))
+		)
+		expect(unified.inlineLinks).toEqual([{ __typename: 'GenAIInlineLinkItem', label: 'Docs', url: 'https://docs.com' }])
+	})
+
+	it('addInlineLink rejects dangerous urls', () => {
+		expect(() => new RichMessageBuilder().addInlineLink('x', 'data:text/html,x')).toThrow(/protokol tidak diizinkan/)
+	})
+
+	it('addFOABloksSection emits FOABloksPrimitive (ORich)', () => {
+		const unified = JSON.parse(captureUnifiedResponse(new ORich().addFOABloksSection({ key: 'v' })))
+		expect(unified.primitives[0].__typename).toBe('FOABloksPrimitive')
+		expect(JSON.parse(unified.primitives[0].data)).toEqual({ key: 'v' })
+	})
+})
+
+describe('Phase 6: AI icon', () => {
+	it('setAiIcon stores the url in the unified payload', () => {
+		const unified = JSON.parse(captureUnifiedResponse(new RichMessageBuilder().setAiIcon('https://cdn/i.png')))
+		expect(unified.aiIcon).toBe('https://cdn/i.png')
+	})
+
+	it('setAiIcon mirrors into botMetadata and reads back', () => {
+		const msg = new RichMessageBuilder().addText('hi').setAiIcon('https://cdn/i.png').build()
+		expect((msg.messageContextInfo?.botMetadata as { aiIcon?: string }).aiIcon).toBe('https://cdn/i.png')
+		expect(readRichMessage(msg)?.aiIcon).toBe('https://cdn/i.png')
+	})
+
+	it('setAiIcon rejects dangerous urls', () => {
+		expect(() => new RichMessageBuilder().setAiIcon('javascript:alert(1)')).toThrow(/protokol tidak diizinkan/)
+	})
+
+	it('setAiIcon(undefined) clears the icon', () => {
+		const builder = new RichMessageBuilder().addText('hi').setAiIcon('https://cdn/i.png').setAiIcon()
+		const unified = JSON.parse(captureUnifiedResponse(builder))
+		expect(unified.aiIcon).toBeUndefined()
+		expect(builder.build().messageContextInfo).toBeUndefined()
+	})
+
+	it('is available on ORich', () => {
+		const msg = new ORich().addText('x').setAiIcon('https://cdn/i.png').build()
+		expect(readRichMessage(msg)?.aiIcon).toBe('https://cdn/i.png')
+	})
+})
+
+describe('Phase 6: rich buttons', () => {
+	const button = (b: Parameters<ORich['addButton']>[0]) => new ORich().addButton(b)
+
+	it('maps reply buttons to quick_reply', () => {
+		expect(toNativeFlowButton({ type: 'reply', id: 'r1', text: 'Yes' })).toEqual({
+			name: 'quick_reply',
+			buttonParamsJson: JSON.stringify({ display_text: 'Yes', id: 'r1' })
+		})
+	})
+
+	it('maps url buttons to cta_url', () => {
+		const native = toNativeFlowButton({ type: 'url', id: 'u1', text: 'Open', url: 'https://a.com' })
+		expect(native.name).toBe('cta_url')
+		expect(JSON.parse(native.buttonParamsJson)).toEqual({
+			display_text: 'Open',
+			url: 'https://a.com',
+			merchant_url: 'https://a.com',
+			id: 'u1'
+		})
+	})
+
+	it('maps call buttons to cta_call', () => {
+		const native = toNativeFlowButton({ type: 'call', id: 'c1', text: 'Call', phone: '+62811' })
+		expect(native.name).toBe('cta_call')
+		expect(JSON.parse(native.buttonParamsJson)).toEqual({
+			display_text: 'Call',
+			phone_number: '+62811',
+			id: 'c1'
+		})
+	})
+
+	it('buildButtonsContent produces a nativeFlowMessage', () => {
+		const content = buildButtonsContent([
+			{ type: 'reply', id: 'a', text: 'A' },
+			{ type: 'url', id: 'b', text: 'B', url: 'https://b.com' }
+		])
+		expect(content.interactiveMessage?.nativeFlowMessage?.buttons).toHaveLength(2)
+		expect(content.interactiveMessage?.nativeFlowMessage?.messageVersion).toBe(1)
+	})
+
+	it('addButton rejects dangerous urls', () => {
+		expect(() => button({ type: 'url', id: 'u', text: 'x', url: 'javascript:alert(1)' })).toThrow(
+			/protokol tidak diizinkan/
+		)
+	})
+
+	it('addButton requires url for url type and phone for call type', () => {
+		expect(() => button({ type: 'url', id: 'u', text: 'x' })).toThrow(/url wajib/)
+		expect(() => button({ type: 'call', id: 'c', text: 'x' })).toThrow(/phone wajib/)
+	})
+
+	it('getButtons returns a copy', () => {
+		const builder = new ORich().addButton({ type: 'reply', id: 'a', text: 'A' })
+		const buttons = builder.getButtons()
+		buttons.push({ type: 'reply', id: 'b', text: 'B' })
+		expect(builder.getButtons()).toHaveLength(1)
+	})
+
+	it('sendORichMessage sends rich content then buttons', async () => {
+		const { sock, calls } = makeMockSock()
+		await sendORichMessage(
+			sock,
+			'6281234567890@s.whatsapp.net',
+			new ORich().addText('hi').addButton({ type: 'reply', id: 'a', text: 'A' })
+		)
+
+		expect(calls).toHaveLength(2)
+		expect(calls[0]!.content.richResponseMessage).toBeDefined()
+		expect(calls[1]!.content.interactiveMessage?.nativeFlowMessage?.buttons).toHaveLength(1)
+	})
+
+	it('sendORichMessage sends only the rich body when there are no buttons', async () => {
+		const { sock, calls } = makeMockSock()
+		await sendORichMessage(sock, '6281234567890@s.whatsapp.net', new ORich().addText('hi'))
+		expect(calls).toHaveLength(1)
+	})
+
+	it('readRichMessage extracts buttons from a nativeFlowMessage', () => {
+		const content = buildButtonsContent([
+			{ type: 'reply', id: 'a', text: 'A' },
+			{ type: 'url', id: 'b', text: 'B', url: 'https://b.com' },
+			{ type: 'call', id: 'c', text: 'C', phone: '+62811' }
+		])
+
+		const parsed = readRichMessage(content)
+		expect(parsed?.buttons).toEqual([
+			{ type: 'reply', id: 'a', text: 'A' },
+			{ type: 'url', id: 'b', text: 'B', url: 'https://b.com' },
+			{ type: 'call', id: 'c', text: 'C', phone: '+62811' }
+		])
+	})
+})
+
+describe('Phase 6: album messages', () => {
+	const imageBuffer = () => Buffer.alloc(16, 1)
+	const videoBuffer = () => {
+		const buffer = Buffer.alloc(16, 0)
+		buffer.write('ftyp', 4, 'ascii')
+		return buffer
+	}
+
+	const makeUploadSock = () => {
+		const calls: { jid: string; content: proto.IMessage; options?: unknown }[] = []
+		const sock = {
+			relayMessage: async (jid: string, content: proto.IMessage, options?: unknown) => {
+				calls.push({ jid, content, options })
+				return { key: { id: `M${calls.length}`, remoteJid: jid } } as WAMessage
+			},
+			waUploadToServer: async () => ({ mediaUrl: 'https://mmg.example/x', directPath: '/x' }),
+			logger: undefined
+		} as unknown as FurinaSocket
+
+		return { sock, calls }
+	}
+
+	it('buildAlbumMessage counts images and videos from extensions', () => {
+		const { albumMessage, albumMediaGroupId } = buildAlbumMessage([
+			'https://cdn/a.jpg',
+			'https://cdn/b.mp4',
+			'https://cdn/c.png'
+		])
+
+		expect(albumMessage.expectedImageCount).toBe(2)
+		expect(albumMessage.expectedVideoCount).toBe(1)
+		expect(typeof albumMediaGroupId).toBe('string')
+		expect(albumMediaGroupId.length).toBeGreaterThan(0)
+	})
+
+	it('buildAlbumMessage detects video buffers by magic bytes', () => {
+		const { albumMessage } = buildAlbumMessage([imageBuffer(), videoBuffer()])
+		expect(albumMessage.expectedImageCount).toBe(1)
+		expect(albumMessage.expectedVideoCount).toBe(1)
+	})
+
+	it('buildAlbumMessage rejects an empty album', () => {
+		expect(() => buildAlbumMessage([])).toThrow(/minimal 1 media/)
+	})
+
+	it('buildAlbumMessage honours an explicit group id', () => {
+		expect(buildAlbumMessage(['https://cdn/a.jpg'], undefined, 'GROUP123').albumMediaGroupId).toBe('GROUP123')
+	})
+
+	it('sendAlbum relays every media with the same mediagroup id', async () => {
+		const { sock, calls } = makeUploadSock()
+		const results = await sendAlbum(sock, '6281234567890@s.whatsapp.net', [imageBuffer(), imageBuffer()], 'cap')
+
+		expect(results).toHaveLength(2)
+		expect(calls).toHaveLength(2)
+
+		const groupIds = calls.map(
+			call => (call.options as { additionalAttributes?: Record<string, string> }).additionalAttributes?.mediagroup
+		)
+		expect(groupIds[0]).toBeTruthy()
+		expect(groupIds[0]).toBe(groupIds[1])
+	})
+
+	it('sendAlbum normalizes the jid and captions only the first media', async () => {
+		const { sock, calls } = makeUploadSock()
+		await sendAlbum(sock, '6281234567890:5@s.whatsapp.net', [imageBuffer(), imageBuffer()], 'cap')
+
+		expect(calls[0]!.jid).toBe('6281234567890@s.whatsapp.net')
+		expect(calls[0]!.content.imageMessage?.caption).toBe('cap')
+		expect(calls[1]!.content.imageMessage?.caption).toBeFalsy()
+	})
+
+	it('readRichMessage extracts an album envelope', () => {
+		const parsed = readRichMessage({
+			albumMessage: { expectedImageCount: 3, expectedVideoCount: 1 }
+		})
+
+		expect(parsed?.album).toEqual({
+			expectedImageCount: 3,
+			expectedVideoCount: 1,
+			albumMediaGroupId: undefined
+		})
 	})
 })

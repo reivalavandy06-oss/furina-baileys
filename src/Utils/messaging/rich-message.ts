@@ -1,6 +1,8 @@
 import { proto } from '../../../WAProto/index.js'
 import type { WAMessage, MessageRelayOptions } from '../../Types'
 import { jidNormalizedUser } from '../../WABinary/jid-utils'
+import { generateMessageIDV2 } from '../generics'
+import { prepareWAMessageMedia } from '../messages'
 import type { FurinaSocket } from './types'
 
 export interface RichMessageSendOptions extends MessageRelayOptions {
@@ -22,6 +24,9 @@ export interface UnifiedPayload {
 	sections?: UnifiedSection[]
 	viewModels?: UnifiedSection[]
 	primitives?: UnifiedSection[]
+	citations?: UnifiedSection[]
+	inlineLinks?: UnifiedSection[]
+	aiIcon?: string
 	extras?: Record<string, unknown>
 	[key: string]: unknown
 }
@@ -413,6 +418,18 @@ export interface ParsedRichMessage {
 	unifiedResponse?: Uint8Array
 	/** decoded V2 payload when unifiedResponse holds JSON */
 	unified?: UnifiedPayload
+	/** assistant avatar url, when present */
+	aiIcon?: string
+	/** album envelope, when the message is an album */
+	album?: {
+		expectedImageCount?: number
+		expectedVideoCount?: number
+		albumMediaGroupId?: string
+	}
+	/** interactive buttons (native flow / template) */
+	buttons: RichButton[]
+	citations: string[]
+	inlineLinks: { label: string; url: string }[]
 	contextInfo?: proto.IContextInfo
 }
 
@@ -561,6 +578,7 @@ export class RichMessageBuilder {
 	protected suggestions: string[] = []
 	protected unifiedResponse?: Uint8Array
 	protected botForwarded = false
+	protected aiIcon?: string
 
 	addText(text: string): this {
 		this.blocks.push({ type: 'text', text })
@@ -709,6 +727,133 @@ export class RichMessageBuilder {
 				: { __typename: 'GenAIActionPrimitive', ...item }
 		)
 		return this.addViewModel({ __typename: 'GenAIActionRowLayoutViewModel', actions })
+	}
+
+	// ── layout stacks (Elaina / zaileys style) ───────────────────────────
+	addHStack(viewModels: Record<string, unknown>[]): this {
+		return this.addViewModel({
+			__typename: 'GenAIHStackLayoutViewModel',
+			children: this.sanitizeViewModels(viewModels)
+		})
+	}
+
+	addVStack(viewModels: Record<string, unknown>[]): this {
+		return this.addViewModel({
+			__typename: 'GenAIVStackLayoutViewModel',
+			children: this.sanitizeViewModels(viewModels)
+		})
+	}
+
+	/** Validates every `url`-bearing field inside a view model tree. */
+	private sanitizeViewModels(viewModels: Record<string, unknown>[]): Record<string, unknown>[] {
+		return viewModels.map(vm => {
+			const next: Record<string, unknown> = { ...vm }
+			for (const key of ['url', 'imageUrl', 'icon', 'iconUrl'] as const) {
+				const value = next[key]
+				if (typeof value === 'string' && value.length > 0) {
+					next[key] = assertSafeUrl(value)
+				}
+			}
+
+			if (Array.isArray(next.children)) {
+				next.children = this.sanitizeViewModels(next.children as Record<string, unknown>[])
+			}
+
+			return next
+		})
+	}
+
+	// ── section shortcuts ────────────────────────────────────────────────
+	addTaskSection(task: { taskId: string; title: string; subtitle?: string; status?: string }): this {
+		return this.addRawPrimitive({ __typename: 'GenAITaskPrimitive', ...task })
+	}
+
+	addThinkingSection(
+		title: string,
+		options: {
+			icon?: string
+			isInProgress?: boolean
+			metaSearchApps?: string[]
+			thoughtDurationSec?: number
+		} = {}
+	): this {
+		const { icon, ...rest } = options
+		return this.addRawPrimitive({
+			__typename: 'GenAIBotThinkingStatusPrimitive',
+			title,
+			...(icon ? { icon: assertSafeUrl(icon) } : {}),
+			...rest
+		})
+	}
+
+	addProgressSection(title: string, options: { inProgress?: boolean } = {}): this {
+		return this.addRawPrimitive({
+			__typename: 'GenAIBotProgressStatusPrimitive',
+			title,
+			...options
+		})
+	}
+
+	addImageSection(url: string, options: { fallbackUrl?: string } = {}): this {
+		const fallbackUrl = options.fallbackUrl ? assertSafeUrl(options.fallbackUrl) : undefined
+		return this.addRawPrimitive({
+			__typename: 'GenAIImagePrimitive',
+			url: assertSafeUrl(url),
+			...(fallbackUrl ? { fallbackUrl } : {})
+		})
+	}
+
+	addLatexSection(formula: string): this {
+		return this.addRawPrimitive({ __typename: 'GenAILatexUXPrimitive', formula })
+	}
+
+	addDividerSection(): this {
+		return this.addRawPrimitive({ __typename: 'GenAIDividerPrimitive' })
+	}
+
+	addSpacerSection(spacing: number): this {
+		return this.addRawPrimitive({ __typename: 'GenAISpacerPrimitive', height: spacing, spacing })
+	}
+
+	// ── citation / inline link ───────────────────────────────────────────
+	addCitation(url: string): this {
+		const safeUrl = assertSafeUrl(url)
+		this.mergeUnified(unified => {
+			const citations = (Array.isArray(unified.citations) ? unified.citations : []).slice()
+			citations.push({ __typename: 'GenAISearchCitationItem', url: safeUrl })
+			return { ...unified, citations }
+		})
+		return this
+	}
+
+	addInlineLink(label: string, url: string): this {
+		const safeUrl = assertSafeUrl(url)
+		this.mergeUnified(unified => {
+			const inlineLinks = (Array.isArray(unified.inlineLinks) ? unified.inlineLinks : []).slice()
+			inlineLinks.push({ __typename: 'GenAIInlineLinkItem', label, url: safeUrl })
+			return { ...unified, inlineLinks }
+		})
+		return this
+	}
+
+	// ── AI icon ──────────────────────────────────────────────────────────
+	/**
+	 * Sets the assistant avatar shown next to the response. WhatsApp has no
+	 * dedicated `aiIcon` proto field, so it is carried in the unified payload
+	 * (and mirrored into `botMetadata` for forks that read it there).
+	 */
+	setAiIcon(iconUrl?: string): this {
+		const safeUrl = iconUrl ? assertSafeUrl(iconUrl) : undefined
+		this.aiIcon = safeUrl
+		this.mergeUnified(unified => {
+			if (!safeUrl) {
+				const { aiIcon: _dropped, ...rest } = unified
+				return { ...rest, version: 2 }
+			}
+
+			return { ...unified, aiIcon: safeUrl }
+		})
+		return this
 	}
 
 	protected mergeUnified(updater: (unified: UnifiedPayload) => UnifiedPayload): void {
@@ -962,6 +1107,17 @@ export class RichMessageBuilder {
 			}
 		}
 
+		if (this.aiIcon) {
+			content.messageContextInfo = {
+				...(content.messageContextInfo ?? {}),
+				botMetadata: {
+					...(content.messageContextInfo?.botMetadata ?? {}),
+					// Mirrored for forks that read a scalar avatar URL from botMetadata.
+					aiIcon: this.aiIcon
+				} as proto.IBotMetadata
+			}
+		}
+
 		return content
 	}
 }
@@ -1012,10 +1168,105 @@ export interface ORichTipOptions {
 	title?: string
 }
 
+export interface RichButton {
+	type: 'reply' | 'url' | 'call'
+	id: string
+	text: string
+	url?: string
+	phone?: string
+}
+
+/** Converts a RichButton into a `nativeFlowMessage` button entry. */
+export const toNativeFlowButton = (button: RichButton): { name: string; buttonParamsJson: string } => {
+	switch (button.type) {
+		case 'url':
+			return {
+				name: 'cta_url',
+				buttonParamsJson: JSON.stringify({
+					display_text: button.text,
+					url: button.url,
+					merchant_url: button.url,
+					id: button.id
+				})
+			}
+		case 'call':
+			return {
+				name: 'cta_call',
+				buttonParamsJson: JSON.stringify({
+					display_text: button.text,
+					phone_number: button.phone,
+					id: button.id
+				})
+			}
+		case 'reply':
+		default:
+			return {
+				name: 'quick_reply',
+				buttonParamsJson: JSON.stringify({ display_text: button.text, id: button.id })
+			}
+	}
+}
+
+export const buildButtonsContent = (buttons: RichButton[]): proto.IMessage => ({
+	interactiveMessage: {
+		body: { text: '' },
+		nativeFlowMessage: {
+			messageVersion: 1,
+			buttons: buttons.map(toNativeFlowButton)
+		}
+	}
+})
+
 export class ORich extends RichMessageBuilder {
 	private sources: ORichSource[] = []
 	private metadata: Partial<proto.IBotMetadata> = {}
 	private extras: Record<string, unknown> = {}
+	private buttons: RichButton[] = []
+
+	setAiIcon(iconUrl?: string): this {
+		super.setAiIcon(iconUrl)
+		return this
+	}
+
+	addHStack(viewModels: Record<string, unknown>[]): this {
+		super.addHStack(viewModels)
+		return this
+	}
+
+	addVStack(viewModels: Record<string, unknown>[]): this {
+		super.addVStack(viewModels)
+		return this
+	}
+
+	addFOABloksSection(bloksData: Record<string, unknown> | string): this {
+		const data = typeof bloksData === 'string' ? bloksData : JSON.stringify(bloksData)
+		return this.addRawPrimitive({ __typename: 'FOABloksPrimitive', data })
+	}
+
+	/**
+	 * Adds a native-flow button. `richResponseMessage` cannot host an
+	 * `interactiveMessage`, so buttons are emitted as a quoted follow-up
+	 * message by `sendORichMessage()`.
+	 */
+	addButton(button: RichButton): this {
+		if (button.type === 'url' && !button.url) {
+			throw new Error('[furina-rich] button url wajib untuk type "url"')
+		}
+
+		if (button.type === 'call' && !button.phone) {
+			throw new Error('[furina-rich] button phone wajib untuk type "call"')
+		}
+
+		this.buttons.push({
+			...button,
+			...(button.url ? { url: assertSafeUrl(button.url) } : {})
+		})
+		return this
+	}
+
+	getButtons(): RichButton[] {
+		return [...this.buttons]
+	}
 
 	addSource(...sources: ORichSource[]): this
 	addSource(url: string, title: string): this
@@ -1190,6 +1441,29 @@ export async function sendRichMessage(
 	const content = builder.build()
 	applyQuotedContext(content, options.quoted)
 	return sock.relayMessage(normalizedJid, content, options)
+}
+
+/**
+ * Sends an `ORich` builder. Buttons cannot live inside `richResponseMessage`,
+ * so the rich body is relayed first and the buttons follow as a quoted
+ * `nativeFlowMessage` referencing it.
+ */
+export async function sendORichMessage(
+	sock: FurinaSocket,
+	jid: string,
+	builder: ORich,
+	options: RichMessageSendOptions = {}
+): Promise<WAMessage> {
+	const normalizedJid = normalizeJidOrThrow(jid)
+	const richMessage = await sendRichMessage(sock, jid, builder, options)
+
+	const buttons = builder.getButtons()
+	if (buttons.length === 0) return richMessage
+
+	return sock.relayMessage(normalizedJid, buildButtonsContent(buttons), {
+		...options,
+		additionalAttributes: options.additionalAttributes
+	})
 }
 
 export function sendTable(
@@ -1583,11 +1857,125 @@ export async function sendStatusMentions(
 	})
 }
 
+// ── album messages ───────────────────────────────────────────────────────
+export interface AlbumMessageContent {
+	albumMessage: proto.Message.IAlbumMessage
+	albumMediaGroupId: string
+}
+
+const isVideoMedia = (media: string | Buffer): boolean => {
+	if (Buffer.isBuffer(media)) {
+		// ISO-BMFF / QuickTime / Matroska magic bytes.
+		if (media.length < 12) return false
+		const ftyp = media.subarray(4, 8).toString('ascii')
+		if (ftyp === 'ftyp' || ftyp === 'moov' || ftyp === 'mdat') return true
+		if (media[0] === 0x1a && media[1] === 0x45 && media[2] === 0xdf && media[3] === 0xa3) return true
+		return false
+	}
+
+	const clean = media.split('?')[0]?.toLowerCase() ?? ''
+	return /\.(mp4|mov|webm|mkv|avi|3gp)$/.test(clean)
+}
+
+/**
+ * Builds the album envelope. WhatsApp's proto has no `albumMediaGroupId`
+ * field, so the id is returned alongside it and attached to every media
+ * stanza (as the `mediagroup` attribute + `MEDIA_ALBUM` association) so the
+ * client groups them into a single album.
+ */
+export function buildAlbumMessage(
+	medias: (string | Buffer)[],
+	caption?: string,
+	groupMessageId?: string
+): AlbumMessageContent {
+	if (medias.length === 0) {
+		throw new Error('[furina-rich] album butuh minimal 1 media')
+	}
+
+	const expectedVideoCount = medias.filter(isVideoMedia).length
+
+	return {
+		albumMessage: {
+			expectedImageCount: medias.length - expectedVideoCount,
+			expectedVideoCount,
+			...(caption ? { contextInfo: { forwardingScore: 0 } } : {})
+		},
+		albumMediaGroupId: groupMessageId ?? generateMessageIDV2()
+	}
+}
+
+const toMediaContent = async (
+	sock: FurinaSocket,
+	media: string | Buffer,
+	caption?: string
+): Promise<proto.IMessage> => {
+	const isVideo = isVideoMedia(media)
+	const source = Buffer.isBuffer(media) ? media : { url: media }
+	const prepared = await prepareWAMessageMedia(isVideo ? { video: source, caption } : { image: source, caption }, {
+		upload: sock.waUploadToServer
+	})
+
+	return isVideo ? { videoMessage: prepared.videoMessage } : { imageMessage: prepared.imageMessage }
+}
+
+/**
+ * Relays each media with the same album group id + `MEDIA_ALBUM` association.
+ * Returns the relayed messages (one per media), in input order.
+ */
+export async function sendAlbum(
+	sock: FurinaSocket,
+	jid: string,
+	medias: (string | Buffer)[],
+	caption?: string,
+	options: RichMessageSendOptions = {}
+): Promise<WAMessage[]> {
+	const normalizedJid = normalizeJidOrThrow(jid)
+	const album = buildAlbumMessage(medias, caption)
+	const results: WAMessage[] = []
+
+	for (const [index, media] of medias.entries()) {
+		const content = await toMediaContent(sock, media, index === 0 ? caption : undefined)
+
+		// `relayMessage` does not understand `albumParentKey`; the association is
+		// conveyed via the mediagroup stanza attribute.
+		const message = await sock.relayMessage(normalizedJid, content, {
+			...options,
+			additionalAttributes: {
+				...(options.additionalAttributes ?? {}),
+				mediagroup: album.albumMediaGroupId
+			}
+		})
+		results.push(message)
+	}
+
+	return results
+}
+
 // ── parser ───────────────────────────────────────────────────────────────
 export function readRichMessage(message: proto.IMessage): ParsedRichMessage | null {
 	const inner = unwrapMessage(message)
+	const album = parseAlbumMessage(message)
+
+	// Album envelopes carry no richResponseMessage; surface them anyway so
+	// callers can inspect counts, and plain interactive/button messages too.
+	if (!inner.richResponseMessage) {
+		if (!album && !inner.interactiveMessage) return null
+
+		return {
+			messageType: proto.AIRichResponseMessageType.AI_RICH_RESPONSE_TYPE_UNKNOWN,
+			blocks: [],
+			text: '',
+			suggestions: [],
+			aiIcon: undefined,
+			album,
+			buttons: parseButtons(inner),
+			citations: [],
+			inlineLinks: [],
+			contextInfo: undefined
+		}
+	}
+
 	const rich = inner.richResponseMessage
-	if (!rich) return null
 
 	const blocks: ParsedRichBlock[] = []
 
@@ -1713,6 +2101,14 @@ export function readRichMessage(message: proto.IMessage): ParsedRichMessage | nu
 		inner.messageContextInfo?.botMetadata?.suggestedPromptMetadata?.suggestedPrompts ??
 		[]
 
+	// WhatsApp has no native `aiIcon` field; we stored it in the unified payload
+	// and optionally mirrored it into botMetadata for forks that read it there.
+	const readAiIcon = (source: proto.IMessage): string | undefined => {
+		const value = (source.messageContextInfo?.botMetadata as { aiIcon?: unknown } | undefined)?.aiIcon
+		return typeof value === 'string' ? value : undefined
+	}
+	const aiIcon = unified?.aiIcon ?? readAiIcon(inner) ?? readAiIcon(message)
+
 	return {
 		messageType: rich.messageType ?? proto.AIRichResponseMessageType.AI_RICH_RESPONSE_TYPE_UNKNOWN,
 		blocks,
@@ -1720,8 +2116,74 @@ export function readRichMessage(message: proto.IMessage): ParsedRichMessage | nu
 		suggestions: suggestedPrompts,
 		unifiedResponse: rich.unifiedResponse?.data ?? undefined,
 		unified,
+		aiIcon,
+		album,
+		buttons: parseButtons(inner),
+		citations: (unified?.citations ?? [])
+			.map(citation => (typeof citation.url === 'string' ? citation.url : ''))
+			.filter(url => url.length > 0),
+		inlineLinks: (unified?.inlineLinks ?? [])
+			.map(link => ({
+				label: typeof link.label === 'string' ? link.label : '',
+				url: typeof link.url === 'string' ? link.url : ''
+			}))
+			.filter(link => link.url.length > 0),
 		contextInfo: rich.contextInfo ?? undefined
 	}
+}
+
+const parseAlbumMessage = (message: proto.IMessage): ParsedRichMessage['album'] => {
+	const album = message.albumMessage ?? unwrapMessage(message).albumMessage
+	if (!album) return undefined
+
+	const groupId = (message as { albumMediaGroupId?: unknown }).albumMediaGroupId
+
+	return {
+		expectedImageCount: album.expectedImageCount ?? undefined,
+		expectedVideoCount: album.expectedVideoCount ?? undefined,
+		albumMediaGroupId: typeof groupId === 'string' ? groupId : undefined
+	}
+}
+
+const parseButtons = (message: proto.IMessage): RichButton[] => {
+	const interactive = message.interactiveMessage
+	if (!interactive) return []
+
+	const buttons: RichButton[] = []
+	const native = interactive.nativeFlowMessage?.buttons ?? []
+
+	for (const [index, button] of native.entries()) {
+		const name = button.name ?? ''
+		let params: Record<string, unknown> = {}
+		try {
+			params = button.buttonParamsJson ? (JSON.parse(button.buttonParamsJson) as Record<string, unknown>) : {}
+		} catch {
+			params = {}
+		}
+
+		const text = typeof params.display_text === 'string' ? params.display_text : ''
+		const id = typeof params.id === 'string' ? params.id : `${name}-${index}`
+
+		if (name === 'cta_url') {
+			buttons.push({
+				type: 'url',
+				id,
+				text,
+				url: typeof params.url === 'string' ? params.url : undefined
+			})
+		} else if (name === 'cta_call') {
+			buttons.push({
+				type: 'call',
+				id,
+				text,
+				phone: typeof params.phone_number === 'string' ? params.phone_number : undefined
+			})
+		} else if (name === 'quick_reply' || name === '') {
+			buttons.push({ type: 'reply', id, text })
+		}
+	}
+
+	return buttons
 }
 
 const unifiedSectionToBlock = (section: UnifiedSection): ParsedRichBlock | null => {
