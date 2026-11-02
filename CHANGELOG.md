@@ -1,5 +1,16 @@
 # Changelog
 
+## 1.3.0-furina-rc.1 - 2026-11-02
+
+### Features
+- Complete AI Rich Message: RichMessageBuilder, ORich, embedded screens (A2UI), 3P widgets, UX primitives, album messages, AI icon, rich buttons, LaTeX/imagine/product cards, unified response V2, and a markdown DSL (`parseRichMarkdown`).
+- Helpers: `sendTable`, `sendList`/`sendRichList`, `sendCodeBlock`, `sendLatex`, `sendLatexImage`, `sendMarkdown`, `sendUnifiedResponse`, `sendTableV2`/`sendCodeBlockV2`/`sendLinkV2`, `sendRichHtml`, `sendAlbum`, `sendStatusMentions` (media support), and `sendAIRichMessage`.
+- Parser/decoder: `readRichMessage`, `readEmbeddedTabs`, `readEmbeddedSections`, `decodeAIRich`, `getPlainTextFromUnifiedResponse`.
+
+### Security
+- Mitigate production CVEs: bump `link-preview-js` to ^4.0.4 (SSRF) and pin `form-data`, `lodash`, `zod`, `undici` via resolutions.
+- URL validation (`assertSafeUrl`) for all rich-message media/link fields (CVE-2026-23866 mitigation).
+
 ## 1.2.0-furina-rc.2 - 2026-10-31
 
 ### Features

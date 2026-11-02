@@ -11,6 +11,7 @@ Dokumentasi lengkap `@vanzzz/furina-baileys`. README di root repo berisi ringkas
 [Stability Layer](stability.md) | Pemantau koneksi, backoff, stealth mode |
 [Broadcast CRM](broadcast-crm.md) | Segmentasi customer, template, kanal newsletter |
 [Message Builder](message-builder.md) | Button interaktif, carousel, MessageBuilder |
+[AI Rich Message](ai-rich-message.md) | Teks kaya, code/tabel, embedded screens, album, tombol, DSL markdown |
 [Furina Resolver](resolver.md) | Mapping LID ↔ PN, USync, link utils |
 
 ## Referensi

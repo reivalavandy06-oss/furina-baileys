@@ -11,7 +11,7 @@ Fork dari [WhiskeySockets/Baileys](https://github.com/WhiskeySockets/Baileys) de
 [![TypeScript](https://img.shields.io/badge/typescript-5.9-blue.svg)](https://www.typescriptlang.org/)
 [![Dual CJS/ESM](https://img.shields.io/badge/module-dual%20CJS%2FESM-brightgreen.svg)](package.json)
 
-`v1.2.0-furina-rc.2` · Node.js >= 20
+`v1.3.0-furina-rc.1` · Node.js >= 20
 
 > [!CAUTION]
 > Baileys 7.0.0 memperkenalkan breaking changes. Baca [migration guide upstream](https://whiskey.so/migrate-latest) sebelum naik versi.
@@ -26,6 +26,7 @@ Fork dari [WhiskeySockets/Baileys](https://github.com/WhiskeySockets/Baileys) de
 - **Multi-device support** — device suffix, agent suffix, dan LID/PN duality ditangani lewat helper JID
 - **Message detection 97 tipe** — termasuk view-once, reaction, dan interactive response
 - **Button & carousel** — 17 tipe button native, plus `MessageBuilder` fluent untuk compose pesan kompleks
+- **AI Rich Message** — `RichMessageBuilder`/`ORich` untuk teks kaya, code, tabel, embedded screens (A2UI), album, tombol native, dan DSL markdown (`parseRichMarkdown`)
 
 **Anti-ban**
 

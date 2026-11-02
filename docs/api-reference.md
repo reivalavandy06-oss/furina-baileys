@@ -60,6 +60,44 @@ Daftar API publik yang tersedia.
 - `.withBotProfileProtocol()` — Fetch bot/AI profile data
 - `parseUSyncQueryResult(result)` — Parse a raw `<usync>` result into `{ list, sideList }`
 
+### AI Rich Message (`rich-message.ts`)
+
+**Builders**
+
+- `RichMessageBuilder` — `addText`, `addCodeBlock`, `addTable`, `addList`, `addLatex`, `addLatexInlineImage`, `addImage`, `addInlineImage`, `addGridImage`, `addReels`, `addVideo`, `addMap`, `addLink`, `addSuggestions`, `addImagine`, `addProductItem`, `addFooterAction`, `addDivider`, `addSpacer`, `addMetadataText`, `addCitation`, `addInlineLink`, `addTaskSection`, `addThinkingSection`, `addProgressSection`, `addImageSection`, `addLatexSection`, `addDividerSection`, `addSpacerSection`, `addSection`, `addViewModel`, `addRawPrimitive`, `addHStack`, `addVStack`, `addActionRow`, `addMarkdown`, `setUnifiedResponse`, `setAiIcon`, `wrapInBotForwarded`, `build`
+- `ORich extends RichMessageBuilder` — `addSource`, `addProduct`, `addPost`, `addMetadata`, `addTip`, `addWidget` (with `kind` for 3P sub-types), `addFooterAction`, `addSuggest`, `addButton`, `getButtons`, `embeddedScreen`, `embeddedTab`, `addFOABloksSection`, `addMetaSubsQuotaUpsell`, `setAiIcon`, `addHStack`, `addVStack`, `addSection`
+
+**Senders**
+
+- `sendRichMessage(sock, jid, builder, options?)`
+- `sendORichMessage(sock, jid, orich, options?)`
+- `sendTable`, `sendRichList` (`sendList` → rich list), `sendCodeBlock`, `sendLatex`, `sendLatexImage`, `sendLatexInlineImage`, `sendMarkdown`
+- `sendUnifiedResponse`, `sendTableV2`, `sendCodeBlockV2`, `sendLinkV2`, `sendRichHtml`
+- `sendAlbum`, `sendStatusMentions`, `sendAIRichMessage`
+
+**Builders / helpers**
+
+- `buildAlbumMessage(medias, caption?, groupMessageId?)` → `{ albumMessage, albumMediaGroupId }`
+- `buildAIRichMessage(options)`, `generateUnifiedContent(payload)`, `generateRichHtmlContent(html)`
+- `buildButtonsContent(buttons)`, `toNativeFlowButton(button)`, `buildLatexImageUrl(formula, dpi?)`
+- `toBase64Primitive(item)`
+
+**Parser / decoder**
+
+- `readRichMessage(message)` → `ParsedRichMessage | null`
+- `readEmbeddedTabs(screen)`, `readEmbeddedSections(screen)`
+- `decodeAIRich(message)` → JSON object | null
+- `getPlainTextFromUnifiedResponse(payload)` → string
+- `captureUnifiedResponse(source)` → JSON string
+
+**Markdown DSL & security**
+
+- `parseRichMarkdown(markdown)` → `ORich`
+- `inlineMarkdownToPlain(text)`
+- `tokenizeCode(code, language)` → `CodeToken[]`
+- `assertSafeUrl(url)` / `isSafeUrl(url)` — only `http:`/`https:` allowed
+- `CODE_HIGHLIGHT_TO_PROTO`, `ORICH_WIDGET_TYPENAMES`, `UX_PRIMITIVE_TYPENAMES`
+
 ### Utilities
 
 - `Browsers.ubuntu/macOS/windows/android/baileys/appropriate` — Browser identities
@@ -81,6 +119,7 @@ Daftar API publik yang tersedia.
 - [Anti-BAN Protection](antiban.md) — Perlindungan anti-ban: timing manusia, rate limiter, dan health monitor.
 - [Furina Resolver](resolver.md) — Mapping LID ↔ PN dua arah, query USync, dan util link wa.me.
 - [Message Builder](message-builder.md) — Button interaktif, carousel, MessageBuilder, dan button tracker.
+- [AI Rich Message](ai-rich-message.md) — Teks kaya, code/tabel, embedded screens, album, tombol, dan DSL markdown.
 - **API Reference** — _halaman ini_
 - [Troubleshooting](troubleshooting.md) — Masalah umum, reconnect, session, rate limit, delivery, quarantine.
 - [Lisensi](license.md) — Detail lisensi Apache-2.0 dan kewajiban atribusi.
