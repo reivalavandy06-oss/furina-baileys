@@ -195,6 +195,15 @@ Ringkasan di atas adalah pintu masuk. Dokumentasi lengkap dipisah per topik supa
 
 ---
 
+## ☕ Dukung Proyek Ini
+
+Jika library ini bermanfaat untuk bot WhatsApp kamu, kamu bisa memberikan dukungan melalui:
+- [Saweria](https://saweria.co/Avandy)
+
+Dukungan kamu sangat berarti untuk keberlangsungan proyek ini!
+
+---
+
 ## 📄 Lisensi
 
 **Apache License 2.0** dengan kewajiban atribusi.
