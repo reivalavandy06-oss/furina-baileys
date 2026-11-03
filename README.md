@@ -183,6 +183,9 @@ Ringkasan di atas adalah pintu masuk. Dokumentasi lengkap dipisah per topik supa
 | [Stability](docs/stability.md) | Reconnect, backoff eksponensial, stealth mode, `StabilityManager` |
 | [Broadcast CRM](docs/broadcast-crm.md) | Segmentasi customer, template spintax, kanal newsletter, alur end-to-end |
 | [Message Builder](docs/message-builder.md) | 17 tipe button, carousel, `MessageBuilder`, button tracker |
+| [AI Rich Message](docs/ai-rich-message.md) | Teks kaya, code/tabel, embedded screens, album, tombol, DSL markdown |
+| [VoIP (Fondasi)](docs/voip.md) | Deteksi panggilan masuk & penolakan call (eksperimental) |
+| [Commerce](docs/commerce.md) | Payment request, katalog produk, fetch catalog bisnis |
 | [Resolver](docs/resolver.md) | Mapping LID ↔ PN dua arah, query USync, util link `wa.me` |
 | [Message Detection](docs/message-detection.md) | Mengenali 97 tipe pesan WhatsApp |
 | [Troubleshooting](docs/troubleshooting.md) | Masalah umum, reconnect, session, rate limit, delivery, quarantine |

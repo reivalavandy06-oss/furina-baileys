@@ -139,6 +139,7 @@ Daftar API publik yang tersedia.
 - [Message Builder](message-builder.md) — Button interaktif, carousel, MessageBuilder, dan button tracker.
 - [AI Rich Message](ai-rich-message.md) — Teks kaya, code/tabel, embedded screens, album, tombol, dan DSL markdown.
 - [VoIP (Fondasi)](voip.md) — Deteksi panggilan masuk dan penolakan call (eksperimental).
+- [Commerce](commerce.md) — Payment request, katalog produk, dan fetch catalog bisnis.
 - **API Reference** — _halaman ini_
 - [Troubleshooting](troubleshooting.md) — Masalah umum, reconnect, session, rate limit, delivery, quarantine.
 - [Lisensi](license.md) — Detail lisensi Apache-2.0 dan kewajiban atribusi.

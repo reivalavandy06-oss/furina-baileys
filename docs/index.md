@@ -13,6 +13,7 @@ Dokumentasi lengkap `@vanzzz/furina-baileys`. README di root repo berisi ringkas
 [Message Builder](message-builder.md) | Button interaktif, carousel, MessageBuilder |
 [AI Rich Message](ai-rich-message.md) | Teks kaya, code/tabel, embedded screens, album, tombol, DSL markdown |
 [VoIP (Fondasi)](voip.md) | Deteksi panggilan masuk dan penolakan call (eksperimental) |
+[Commerce](commerce.md) | Payment request, katalog produk, dan fetch catalog bisnis |
 [Furina Resolver](resolver.md) | Mapping LID ↔ PN, USync, link utils |
 
 ## Referensi
