@@ -327,6 +327,8 @@ export type MessageRelayOptions = MinimalRelayOptions & {
 export type MiscMessageGenerationOptions = MinimalRelayOptions & {
 	/** optional, if you want to manually set the timestamp of the message */
 	timestamp?: Date
+	/** mark the message as AI-generated (injects botMetadata into messageContextInfo) */
+	ai?: boolean
 	/** the message you want to quote */
 	quoted?: WAMessage
 	/** disappearing messages settings */

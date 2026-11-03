@@ -75,3 +75,23 @@ export type {
 	ORichFooterAction,
 	ORichTipOptions
 } from './rich-message'
+
+export { sendStickerPack, batchStickers, STICKER_PACK_MAX_ITEMS, STICKER_PACK_BATCH_DELAY_MS } from './sticker-pack'
+export type { StickerPackItem, StickerPackOptions } from './sticker-pack'
+
+export { sendGroupStatus } from './group-status'
+export type { GroupStatusContent } from './group-status'
+
+export { bulkFollowNewsletter, newsletterAdminUtils, DEFAULT_FOLLOW_DELAY_MS } from './newsletter-extras'
+export type {
+	BulkFollowOptions,
+	BulkFollowResult,
+	NewsletterAdminRole,
+	NewsletterSocketLike
+} from './newsletter-extras'
+
+export { sendPaymentRequest, sendProductCatalog, fetchCatalog } from './commerce'
+export type { PaymentRequestOptions, ProductCatalogOptions, CatalogProduct } from './commerce'
+
+export { getMediaPreparer, setMediaPreparer } from './media-seam'
+export type { MediaPreparer } from './media-seam'

@@ -748,6 +748,21 @@ export const generateWAMessageFromContent = (
 
 	message = WAProto.Message.create(message)
 
+	// AI-marked messages carry botMetadata so clients can render the assistant
+	// avatar/label. `botResponseId` gives each response a stable identifier.
+	if (options.ai) {
+		message.messageContextInfo = {
+			...(message.messageContextInfo ?? {}),
+			botMetadata: {
+				...(message.messageContextInfo?.botMetadata ?? {}),
+				botResponseId: options.messageId || generateMessageIDV2(options.userJid),
+				botModeSelectionMetadata: {
+					mode: [WAProto.BotModeSelectionMetadata.BotUserSelectionMode.REASONING_MODE]
+				}
+			}
+		}
+	}
+
 	const messageJSON = {
 		key: {
 			remoteJid: jid,
