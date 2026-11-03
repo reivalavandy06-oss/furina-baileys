@@ -25,4 +25,4 @@ export * from './member-labels'
 export * from './stability'
 export * from './crm'
 export * from './messaging'
-
+export * from './voip'

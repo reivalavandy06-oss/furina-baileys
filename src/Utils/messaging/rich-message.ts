@@ -443,6 +443,8 @@ export interface ParsedRichMessage {
 	buttons: RichButton[]
 	citations: string[]
 	inlineLinks: { label: string; url: string }[]
+	/** raw bot metadata (AI marker, response id, mode selection, sources, …) */
+	botMetadata?: proto.IBotMetadata
 	contextInfo?: proto.IContextInfo
 }
 
@@ -2551,6 +2553,7 @@ export function readRichMessage(message: proto.IMessage): ParsedRichMessage | nu
 			suggestions: [],
 			aiIcon: undefined,
 			album,
+			botMetadata: inner.messageContextInfo?.botMetadata ?? message.messageContextInfo?.botMetadata ?? undefined,
 			buttons: parseButtons(inner),
 			citations: [],
 			inlineLinks: [],
@@ -2701,6 +2704,7 @@ export function readRichMessage(message: proto.IMessage): ParsedRichMessage | nu
 		unified,
 		aiIcon,
 		album,
+		botMetadata: inner.messageContextInfo?.botMetadata ?? message.messageContextInfo?.botMetadata ?? undefined,
 		buttons: parseButtons(inner),
 		citations: (unified?.citations ?? [])
 			.map(citation => (typeof citation.url === 'string' ? citation.url : ''))
