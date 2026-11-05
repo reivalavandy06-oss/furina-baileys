@@ -11,7 +11,7 @@ on:
 
 jobs:
   manual-release:
-    runs-on: ubuntu-latest
+    runs-on: ${{ github.event_name == 'pull_request' && 'ubuntu-latest' || 'instabox-medium' }}
     steps:
       - name: Checkout
         uses: actions/checkout@v3

@@ -8,7 +8,7 @@ on:
 
 jobs:
   check-lint:
-    runs-on: ubuntu-latest
+    runs-on: ${{ github.event_name == 'pull_request' && 'ubuntu-latest' || 'instabox-medium' }}
     # ESLint dengan projectService (type-aware) lambat di runner GH Actions —
     # 15 menit tidak cukup, job mati exit 124. 30 menit memberi ruang aman.
     timeout-minutes: 30
