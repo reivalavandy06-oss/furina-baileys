@@ -116,6 +116,17 @@ Daftar API publik yang tersedia.
 - `createVoipClient(sock)` → `VoipClient` (stub; media butuh `@roamhq/wrtc`)
 - Event: `sock.ev.on('call', ([call]) => …)`
 
+### Utilities (Fase 9)
+
+- `MessageSearchIndex` — `addMessages`, `search`, `searchRegex`, `count`, `remove`, `reindex`, `clear`
+- `MessageScheduler` — `schedule`, `cancel`, `cancelAll`, `list`, `dispose`
+- `AutoReplyEngine` — `addRule`, `removeRule`, `match`, `processMessage`, `list`
+- `AntiSpamFilter` — `checkMessage`, `scanLink`, `enforceSafeUrl`
+- Username manager — `checkUsername`, `setUsername`, `setUsernamePin`, `getMyUsername`, `deleteUsername`, `findUserByUsername`, `isValidUsername`, `isValidPin`
+- Panorama — `buildPanoramaProfileImages`, `updatePanoramaProfilePicture`, `panoramaBannerHeight`
+- Signal noise — `suppressSignalNoise`, `SIGNAL_NOISE_PATTERNS`
+- Auth store — `makeAuthStateFromStore`, `createFileAuthStore`, `useSQLiteAuthState`, `useMongoDBAuthState`, `useRedisAuthState`
+
 ### Utilities
 
 - `Browsers.ubuntu/macOS/windows/android/baileys/appropriate` — Browser identities

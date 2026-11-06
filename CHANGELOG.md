@@ -1,5 +1,16 @@
 # Changelog
 
+## 1.5.0-furina-rc.1 - 2026-11-06
+
+### Features
+- Multi-backend Auth Store (SQLite, MongoDB, Redis, File).
+- Username Management (check, set, find, delete).
+- Message Search Index (regex & full-text).
+- Panorama Profile Picture updater.
+- HD Media support (hd: true).
+- Message Scheduler & Auto-Reply Engine.
+- Anti-Spam Filter (heuristic offline).
+
 ## 1.4.0-furina-rc.1 - 2026-11-06
 
 ### Features

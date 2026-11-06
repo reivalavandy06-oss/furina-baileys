@@ -11,7 +11,7 @@ Fork dari [WhiskeySockets/Baileys](https://github.com/WhiskeySockets/Baileys) de
 [![TypeScript](https://img.shields.io/badge/typescript-5.9-blue.svg)](https://www.typescriptlang.org/)
 [![Dual CJS/ESM](https://img.shields.io/badge/module-dual%20CJS%2FESM-brightgreen.svg)](package.json)
 
-`v1.4.0-furina-rc.1` · Node.js >= 20
+`v1.5.0-furina-rc.1` · Node.js >= 20
 
 > [!CAUTION]
 > Baileys 7.0.0 memperkenalkan breaking changes. Baca [migration guide upstream](https://whiskey.so/migrate-latest) sebelum naik versi.
@@ -27,6 +27,11 @@ Fork dari [WhiskeySockets/Baileys](https://github.com/WhiskeySockets/Baileys) de
 - **Message detection 97 tipe** — termasuk view-once, reaction, dan interactive response
 - **Button & carousel** — 17 tipe button native, plus `MessageBuilder` fluent untuk compose pesan kompleks
 - **AI Rich Message** — `RichMessageBuilder`/`ORich` untuk teks kaya, code, tabel, embedded screens (A2UI), album, tombol native, dan DSL markdown (`parseRichMarkdown`)
+- **Multi-backend auth store** — `useSQLiteAuthState`/`useMongoDBAuthState`/`useRedisAuthState` (peer deps opsional) di atas kontrak `AuthStore`
+- **Username management** — `checkUsername`, `setUsername`, `getMyUsername`, `findUserByUsername`
+- **Message search index** — `MessageSearchIndex` untuk pencarian full-text & regex atas riwayat pesan
+- **Scheduler & auto-reply** — `MessageScheduler` untuk pesan terjadwal, `AutoReplyEngine` untuk balasan berbasis aturan
+- **Anti-spam filter** — `AntiSpamFilter.checkMessage`/`scanLink`, heuristik offline tanpa mengirim data ke pihak ketiga
 
 **Anti-ban**
 
@@ -186,6 +191,8 @@ Ringkasan di atas adalah pintu masuk. Dokumentasi lengkap dipisah per topik supa
 | [AI Rich Message](docs/ai-rich-message.md) | Teks kaya, code/tabel, embedded screens, album, tombol, DSL markdown |
 | [VoIP (Fondasi)](docs/voip.md) | Deteksi panggilan masuk & penolakan call (eksperimental) |
 | [Commerce](docs/commerce.md) | Payment request, katalog produk, fetch catalog bisnis |
+| [Multi-Backend Auth Store](docs/auth-stores.md) | File/SQLite/MongoDB/Redis lewat kontrak `AuthStore` |
+| [Utilities](docs/utilities.md) | Username Manager, Search Index, Scheduler, Auto-Reply, Anti-Spam, HD Media |
 | [Resolver](docs/resolver.md) | Mapping LID ↔ PN dua arah, query USync, util link `wa.me` |
 | [Message Detection](docs/message-detection.md) | Mengenali 97 tipe pesan WhatsApp |
 | [Troubleshooting](docs/troubleshooting.md) | Masalah umum, reconnect, session, rate limit, delivery, quarantine |
