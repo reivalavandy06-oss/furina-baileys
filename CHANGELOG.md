@@ -1,5 +1,17 @@
 # Changelog
 
+## 1.4.0-furina-rc.1 - 2026-11-06
+
+### Features
+- Global AI Icon option in sendMessage.
+- Sticker Pack support, PTV, and Group Status Messages.
+- Newsletter bulk follow and admin utilities.
+- Commerce: Payment Request and Product Catalog.
+- VoIP Foundation: Call events and rejectCall.
+
+### Security
+- Remove deprecated request, upgrade link-preview-js to v5, and patch remaining CVEs.
+
 ## 1.3.0-furina-rc.1 - 2026-11-02
 
 ### Features
