@@ -41,6 +41,7 @@ import {
 	type MediaDownloadOptions
 } from './messages-media'
 import { shouldIncludeReportingToken } from './reporting-utils'
+import { getMediaPreparer } from './messaging/media-seam'
 
 type ExtractByKey<T, K extends PropertyKey> = T extends Record<K, any> ? T : never
 type RequireKey<T, K extends keyof T> = T & {
@@ -54,6 +55,8 @@ type MediaUploadData = {
 	caption?: string
 	ptt?: boolean
 	ptv?: boolean
+	/** send without client-side recompression (HD / original quality) */
+	hd?: boolean
 	seconds?: number
 	gifPlayback?: boolean
 	fileName?: string
@@ -221,8 +224,12 @@ export const prepareWAMessageMedia = async (
 	}
 
 	const requiresDurationComputation = mediaType === 'audio' && typeof uploadData.seconds === 'undefined'
+	// `hd: true` skips client-side thumbnail/downsampling so the source bytes and
+	// dimensions are preserved. A caller-supplied thumbnail always wins.
 	const requiresThumbnailComputation =
-		(mediaType === 'image' || mediaType === 'video') && typeof uploadData['jpegThumbnail'] === 'undefined'
+		(mediaType === 'image' || mediaType === 'video') &&
+		typeof uploadData['jpegThumbnail'] === 'undefined' &&
+		!uploadData.hd
 	const requiresWaveformProcessing =
 		mediaType === 'audio' && uploadData.ptt === true && typeof uploadData.waveform === 'undefined'
 	const requiresAudioBackground = options.backgroundColor && mediaType === 'audio' && uploadData.ptt === true
@@ -514,7 +521,8 @@ export const generateWAMessageContent = async (
 				break
 		}
 	} else if (hasOptionalProperty(message, 'ptv') && message.ptv) {
-		const { videoMessage } = await prepareWAMessageMedia({ video: message.video }, options)
+		// Routed through the preparer seam so unit tests can stub the media work.
+		const { videoMessage } = await getMediaPreparer()({ video: message.video }, options)
 		m.ptvMessage = videoMessage
 	} else if (hasNonNullishProperty(message, 'product')) {
 		const { imageMessage } = await prepareWAMessageMedia({ image: message.product.productImage }, options)

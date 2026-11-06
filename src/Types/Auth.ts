@@ -114,3 +114,55 @@ export type AuthenticationState = {
 	creds: AuthenticationCreds
 	keys: SignalKeyStore
 }
+
+/**
+ * Persistence contract for auth state. Backends (file, SQLite, MongoDB, Redis)
+ * implement this so `useXAuthState` can return the same shape regardless of the
+ * storage underneath.
+ */
+export interface AuthStore {
+	readonly backend: string
+
+	/** Read a raw record. Resolves `null` when the key does not exist. */
+	get(key: string): Promise<string | null>
+
+	/** Read many records at once. Missing keys are omitted from the result. */
+	getMany(keys: string[]): Promise<Record<string, string>>
+
+	/** Write a single record. */
+	set(key: string, value: string): Promise<void>
+
+	/** Write many records at once. */
+	setMany(entries: Record<string, string>): Promise<void>
+
+	/** Delete a single record. Returns `true` when something was removed. */
+	remove(key: string): Promise<boolean>
+
+	/** List all keys known to the store. */
+	keys(): Promise<string[]>
+
+	/** Remove every record in the store. */
+	clear?(): Promise<void>
+
+	/** Flush/close any open handle. */
+	close?(): Promise<void>
+}
+
+/** How an auth backend is instantiated (used by `useXAuthState`). */
+export interface AuthStateOptions {
+	/** folder/path passed to the backend */
+	path?: string
+	/** connection string, for networked backends */
+	url?: string
+	/** database/collection name, for networked backends */
+	database?: string
+	/** table name, for SQLite */
+	table?: string
+	/** additional backend-specific options */
+	[key: string]: unknown
+}
+
+/** Records an auth backend must persist, mirroring the file layout. */
+export const AUTH_STORE_KEYS = {
+	CREDS: 'creds.json'
+} as const
