@@ -85,14 +85,7 @@ export type MessageWithContextInfo =
 export type DownloadableMessage = { mediaKey?: Uint8Array | null; directPath?: string | null; url?: string | null }
 
 export type MessageReceiptType =
-	| 'read'
-	| 'read-self'
-	| 'hist_sync'
-	| 'peer_msg'
-	| 'sender'
-	| 'inactive'
-	| 'played'
-	| undefined
+	'read' | 'read-self' | 'hist_sync' | 'peer_msg' | 'sender' | 'inactive' | 'played' | undefined
 
 export type MediaConnInfo = {
 	auth: string
@@ -209,6 +202,11 @@ export type AnyMediaMessageContent = (
 ) & { mimetype?: string } & Editable & {
 		/** key of the parent albumMessage to associate this media with */
 		albumParentKey?: WAMessageKey
+		/**
+		 * HD/uncompressed delivery: skip client-side thumbnail/downsampling so the
+		 * source bytes and dimensions are preserved.
+		 */
+		hd?: boolean
 	}
 
 export type ButtonReplyInfo = {
