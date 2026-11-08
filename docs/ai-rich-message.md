@@ -173,6 +173,50 @@ const unified = decodeAIRich(message)          // objek JSON dari unifiedRespons
 const plain = getPlainTextFromUnifiedResponse(unified) // teks polos
 ```
 
+### Global AI Icon
+
+Setiap pesan keluar bisa ditandai sebagai balasan AI dengan **huruf kecil** `ai`
+— tersedia di **`sendMessage` dan `relayMessage`**, dengan perilaku identik:
+
+```javascript
+// lewat sendMessage (konten biasa)
+await sock.sendMessage(jid, { text: 'Halo!' }, { ai: true })
+
+// lewat relayMessage (mentah / builder kaya)
+await sock.relayMessage(jid, { extendedTextMessage: { text: 'Halo!' } }, { ai: true })
+
+// juga bekerja pada builder AI Rich Message
+const builder = new RichMessageBuilder().addText('Halo!')
+await sock.relayMessage(jid, builder.build(), { ai: true })
+```
+
+Yang disuntikkan otomatis ke `messageContextInfo.botMetadata`:
+
+| Field | Isi |
+|---|---|
+| `botResponseId` | id pesan (stabil, bisa dikorelasikan) |
+| `botModeSelectionMetadata.mode` | `[REASONING_MODE]` |
+
+Markernya bisa dibaca kembali dari pesan masuk lewat `readRichMessage()`:
+
+```javascript
+sock.ev.on('messages.upsert', ({ messages }) => {
+  for (const message of messages) {
+    const parsed = readRichMessage(message.message!)
+    if (parsed?.botMetadata?.botResponseId) {
+      console.log('dari asisten AI:', parsed.botMetadata.botResponseId)
+    }
+  }
+})
+```
+
+- `botMetadata` yang **sudah ada** pada konten Anda **dipertahankan** (persona, sumber sitasi, dll.) — helper hanya menambah field yang belum ada.
+- `readRichMessage()` mengembalikan `botMetadata` untuk pesan AI, baik yang dikirim via `sendMessage` maupun `relayMessage`.
+
+> [!TIP]
+> Untuk mengirim avatar asisten pada balasan tertentu, gunakan `setAiIcon(url)`
+> pada builder (lihat bagian AI Icon di atas).
+
 ### Keamanan URL
 
 `assertSafeUrl(url)` (dan `isSafeUrl`) menolak `javascript:`, `data:`, `file:`, URL tanpa protokol,

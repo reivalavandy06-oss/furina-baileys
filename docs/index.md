@@ -16,6 +16,7 @@ Dokumentasi lengkap `@vanzzz/furina-baileys`. README di root repo berisi ringkas
 [Commerce](commerce.md) | Payment request, katalog produk, dan fetch catalog bisnis |
 [Multi-Backend Auth Store](auth-stores.md) | File/SQLite/MongoDB/Redis lewat kontrak `AuthStore` |
 [Utilities](utilities.md) | Username Manager, Search Index, Scheduler, Auto-Reply, Anti-Spam, HD Media |
+[Event Invites](events.md) | Undangan acara (event) untuk chat/grup |
 [Furina Resolver](resolver.md) | Mapping LID ↔ PN, USync, link utils |
 
 ## Referensi

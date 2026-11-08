@@ -41,6 +41,7 @@ import {
 	type MediaDownloadOptions
 } from './messages-media'
 import { shouldIncludeReportingToken } from './reporting-utils'
+import { applyAiMetadata } from './ai-metadata'
 import { getMediaPreparer } from './messaging/media-seam'
 
 type ExtractByKey<T, K extends PropertyKey> = T extends Record<K, any> ? T : never
@@ -757,18 +758,9 @@ export const generateWAMessageFromContent = (
 	message = WAProto.Message.create(message)
 
 	// AI-marked messages carry botMetadata so clients can render the assistant
-	// avatar/label. `botResponseId` gives each response a stable identifier.
+	// avatar/label. Shared helper keeps `relayMessage` behaviour identical.
 	if (options.ai) {
-		message.messageContextInfo = {
-			...(message.messageContextInfo ?? {}),
-			botMetadata: {
-				...(message.messageContextInfo?.botMetadata ?? {}),
-				botResponseId: options.messageId || generateMessageIDV2(options.userJid),
-				botModeSelectionMetadata: {
-					mode: [WAProto.BotModeSelectionMetadata.BotUserSelectionMode.REASONING_MODE]
-				}
-			}
-		}
+		applyAiMetadata(message, options.messageId)
 	}
 
 	const messageJSON = {

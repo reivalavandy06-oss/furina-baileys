@@ -14,6 +14,7 @@ import type {
 } from '../Types'
 import {
 	aggregateMessageKeysNotFromMe,
+	applyAiMetadata,
 	assertMediaContent,
 	assertMeId,
 	bindWaitForEvent,
@@ -669,7 +670,8 @@ export const makeMessagesSocket = (config: SocketConfig) => {
 			additionalNodes,
 			useUserDevicesCache,
 			useCachedGroupMetadata,
-			statusJidList
+			statusJidList,
+			ai
 		}: MessageRelayOptions
 	) => {
 		const meId = assertMeId(authState.creds)
@@ -689,6 +691,13 @@ export const makeMessagesSocket = (config: SocketConfig) => {
 		msgId = msgId || generateMessageIDV2(meId)
 		useUserDevicesCache = useUserDevicesCache !== false
 		useCachedGroupMetadata = useCachedGroupMetadata !== false && !isStatus
+
+		// AI-marked relays carry botMetadata so clients can render the assistant
+		// label. `relayMessage` bypasses generateWAMessageFromContent, so the
+		// injection that `sendMessage` gets there has to happen here too.
+		if (ai) {
+			applyAiMetadata(message, msgId)
+		}
 
 		const participants: BinaryNode[] = []
 		const destinationJid = !isStatus ? finalJid : statusJid

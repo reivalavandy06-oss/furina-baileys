@@ -11,7 +11,7 @@ Fork dari [WhiskeySockets/Baileys](https://github.com/WhiskeySockets/Baileys) de
 [![TypeScript](https://img.shields.io/badge/typescript-5.9-blue.svg)](https://www.typescriptlang.org/)
 [![Dual CJS/ESM](https://img.shields.io/badge/module-dual%20CJS%2FESM-brightgreen.svg)](package.json)
 
-`v1.5.0-furina-rc.1` · Node.js >= 20
+`v1.5.0-furina` · Node.js >= 20
 
 > [!CAUTION]
 > Baileys 7.0.0 memperkenalkan breaking changes. Baca [migration guide upstream](https://whiskey.so/migrate-latest) sebelum naik versi.
@@ -193,6 +193,7 @@ Ringkasan di atas adalah pintu masuk. Dokumentasi lengkap dipisah per topik supa
 | [Commerce](../docs/commerce.md) | Payment request, katalog produk, fetch catalog bisnis |
 | [Multi-Backend Auth Store](../docs/auth-stores.md) | File/SQLite/MongoDB/Redis lewat kontrak `AuthStore` |
 | [Utilities](../docs/utilities.md) | Username Manager, Search Index, Scheduler, Auto-Reply, Anti-Spam, HD Media |
+| [Event Invites](../docs/events.md) | Undangan acara (event) untuk chat/grup |
 | [Resolver](../docs/resolver.md) | Mapping LID ↔ PN dua arah, query USync, util link `wa.me` |
 | [Message Detection](../docs/message-detection.md) | Mengenali 97 tipe pesan WhatsApp |
 | [Troubleshooting](../docs/troubleshooting.md) | Masalah umum, reconnect, session, rate limit, delivery, quarantine |

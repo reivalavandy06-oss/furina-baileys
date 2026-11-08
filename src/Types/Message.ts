@@ -320,6 +320,11 @@ export type MessageRelayOptions = MinimalRelayOptions & {
 	useUserDevicesCache?: boolean
 	/** jid list of participants for status@broadcast */
 	statusJidList?: string[]
+	/**
+	 * Mark the message as AI-generated. Injects `messageContextInfo.botMetadata`
+	 * (botResponseId + mode selection), mirroring `MiscMessageGenerationOptions.ai`.
+	 */
+	ai?: boolean
 }
 
 export type MiscMessageGenerationOptions = MinimalRelayOptions & {

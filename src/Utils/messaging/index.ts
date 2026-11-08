@@ -95,3 +95,6 @@ export type { PaymentRequestOptions, ProductCatalogOptions, CatalogProduct } fro
 
 export { getMediaPreparer, setMediaPreparer } from './media-seam'
 export type { MediaPreparer } from './media-seam'
+
+export { sendEventInvite, EVENT_INVITE_META, toUnixSeconds } from './event-invite'
+export type { EventInviteOptions } from './event-invite'

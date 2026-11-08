@@ -1,5 +1,30 @@
 # Changelog
 
+## 1.5.0-furina - 2026-11-08
+
+Rilis stabil pertama untuk fitur messaging Fase 8 & 9.
+
+### Features
+- AI Rich Message lengkap: `RichMessageBuilder`, `ORich`, embedded screens (A2UI), grid image/reels, album Messages, tombol native, LaTeX, product card, dan DSL markdown (`parseRichMarkdown`).
+- `parseRichMarkdown`, `sendTable`, `sendAlbum`, `sendStatusMentions` (media), dan `sendAIRichMessage`.
+- Global AI Icon: opsi `{ ai: true }` pada `sendMessage` **dan** `relayMessage`, plus `readRichMessage` untuk membaca `botMetadata`.
+- Sticker Pack (`sendStickerPack`), PTV, dan Group Status Messages.
+- Newsletter bulk follow (`bulkFollowNewsletter`) dan utilitas admin.
+- Commerce: `sendPaymentRequest`, `sendProductCatalog`, `fetchCatalog`.
+- VoIP Foundation: event `call` dan `rejectCall`.
+- Multi-backend Auth Store: `useSQLiteAuthState`, `useMongoDBAuthState`, `useRedisAuthState`, `createFileAuthStore`.
+- Username Management: `checkUsername`, `setUsername`, `setUsernamePin`, `getMyUsername`, `deleteUsername`, `findUserByUsername`.
+- Message Search Index (`MessageSearchIndex`) — full-text & regex.
+- Panorama Profile Picture (`updatePanoramaProfilePicture`).
+- HD Media (`hd: true`) untuk gambar/video tanpa rekompresi.
+- `MessageScheduler` & `AutoReplyEngine`.
+- `AntiSpamFilter` dengan `scanLink` heuristik offline.
+- `sendEventInvite` untuk undangan acara.
+
+### Security
+- Menghapus dependency deprecated `request`, menaikkan `link-preview-js` ke v5, dan menambal CVE tersisa (`form-data`, `lodash`, `zod`, `undici`, dll.).
+- `assertSafeUrl` memvalidasi semua URL pada field media/link (mitigasi CVE-2026-23866).
+
 ## 1.5.0-furina-rc.1 - 2026-11-06
 
 ### Features

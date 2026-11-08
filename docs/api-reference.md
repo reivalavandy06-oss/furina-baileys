@@ -127,6 +127,11 @@ Daftar API publik yang tersedia.
 - Signal noise — `suppressSignalNoise`, `SIGNAL_NOISE_PATTERNS`
 - Auth store — `makeAuthStateFromStore`, `createFileAuthStore`, `useSQLiteAuthState`, `useMongoDBAuthState`, `useRedisAuthState`
 
+### Event Invites
+
+- `sendEventInvite(sock, jid, { eventId?, eventTitle, startTime, ... }, options?)`
+- `EVENT_INVITE_META`, `toUnixSeconds(dateOrSeconds)`
+
 ### Utilities
 
 - `Browsers.ubuntu/macOS/windows/android/baileys/appropriate` — Browser identities
