@@ -210,6 +210,7 @@ Ringkasan di atas adalah pintu masuk. Dokumentasi lengkap dipisah per topik supa
 
 Jika library ini bermanfaat untuk bot WhatsApp kamu, kamu bisa memberikan dukungan melalui:
 - [Saweria](https://saweria.co/Avandy)
+- [Trakteer](https://trakteer.id/Avandy_X_Furina)
 
 Dukungan kamu sangat berarti untuk keberlangsungan proyek ini!
 
