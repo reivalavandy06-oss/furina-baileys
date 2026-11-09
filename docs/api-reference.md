@@ -132,6 +132,13 @@ Daftar API publik yang tersedia.
 - `sendEventInvite(sock, jid, { eventId?, eventTitle, startTime, ... }, options?)`
 - `EVENT_INVITE_META`, `toUnixSeconds(dateOrSeconds)`
 
+### Integrations (opsional)
+
+- `listenTrakteerDonations(sock, options)` → `DonationListener` (`trakteerjs`)
+- `listenSaweriaDonations(sock, options)` → `DonationListener` (`saweria` v2)
+- `normalizeTargetJids(targetJid)`, `sendToTargets(sock, jids, content)`
+- `formatTrakteerDonation(donation)`, `formatSaweriaDonation(donation)`
+
 ### Utilities
 
 - `Browsers.ubuntu/macOS/windows/android/baileys/appropriate` — Browser identities

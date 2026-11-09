@@ -17,6 +17,8 @@ Dokumentasi lengkap `@vanzzz/furina-baileys`. README di root repo berisi ringkas
 [Multi-Backend Auth Store](auth-stores.md) | File/SQLite/MongoDB/Redis lewat kontrak `AuthStore` |
 [Utilities](utilities.md) | Username Manager, Search Index, Scheduler, Auto-Reply, Anti-Spam, HD Media |
 [Event Invites](events.md) | Undangan acara (event) untuk chat/grup |
+[Integrasi Trakteer](integrations/trakteer.md) | Listener WebSocket donasi Trakteer (opsional) |
+[Integrasi Saweria](integrations/saweria.md) | Listener WebSocket donasi Saweria (opsional) |
 [Furina Resolver](resolver.md) | Mapping LID ↔ PN, USync, link utils |
 
 ## Referensi

@@ -194,6 +194,8 @@ Ringkasan di atas adalah pintu masuk. Dokumentasi lengkap dipisah per topik supa
 | [Multi-Backend Auth Store](docs/auth-stores.md) | File/SQLite/MongoDB/Redis lewat kontrak `AuthStore` |
 | [Utilities](docs/utilities.md) | Username Manager, Search Index, Scheduler, Auto-Reply, Anti-Spam, HD Media |
 | [Event Invites](docs/events.md) | Undangan acara (event) untuk chat/grup |
+| [Integrasi Trakteer](docs/integrations/trakteer.md) | Listener WebSocket donasi Trakteer (opsional) |
+| [Integrasi Saweria](docs/integrations/saweria.md) | Listener WebSocket donasi Saweria (opsional) |
 | [Resolver](docs/resolver.md) | Mapping LID ↔ PN dua arah, query USync, util link `wa.me` |
 | [Message Detection](docs/message-detection.md) | Mengenali 97 tipe pesan WhatsApp |
 | [Troubleshooting](docs/troubleshooting.md) | Masalah umum, reconnect, session, rate limit, delivery, quarantine |
