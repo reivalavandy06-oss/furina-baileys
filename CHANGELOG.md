@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.6.0-furina - 2026-11-09
+
+### Features
+- Add optional Trakteer & Saweria WebSocket donation listeners.
+- Support multi-target JIDs (PC, Group, Channel) for donation notifications.
+
+### Security
+- Add peerDependenciesMeta for optional donation packages to prevent CVE bloat.
+
 ## 1.5.0-furina - 2026-11-08
 
 Rilis stabil pertama untuk fitur messaging Fase 8 & 9.

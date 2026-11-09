@@ -11,7 +11,7 @@ Fork dari [WhiskeySockets/Baileys](https://github.com/WhiskeySockets/Baileys) de
 [![TypeScript](https://img.shields.io/badge/typescript-5.9-blue.svg)](https://www.typescriptlang.org/)
 [![Dual CJS/ESM](https://img.shields.io/badge/module-dual%20CJS%2FESM-brightgreen.svg)](package.json)
 
-`v1.5.0-furina` · Node.js >= 20
+`v1.6.0-furina` · Node.js >= 20
 
 > [!CAUTION]
 > Baileys 7.0.0 memperkenalkan breaking changes. Baca [migration guide upstream](https://whiskey.so/migrate-latest) sebelum naik versi.
@@ -27,6 +27,7 @@ Fork dari [WhiskeySockets/Baileys](https://github.com/WhiskeySockets/Baileys) de
 - **Message detection 97 tipe** — termasuk view-once, reaction, dan interactive response
 - **Button & carousel** — 17 tipe button native, plus `MessageBuilder` fluent untuk compose pesan kompleks
 - **AI Rich Message** — `RichMessageBuilder`/`ORich` untuk teks kaya, code, tabel, embedded screens (A2UI), album, tombol native, dan DSL markdown (`parseRichMarkdown`)
+- **Donation Integrations (Trakteer & Saweria)** — listener WebSocket donasi opsional dengan dukungan multi-target JID (PC, Grup, Channel)
 - **Multi-backend auth store** — `useSQLiteAuthState`/`useMongoDBAuthState`/`useRedisAuthState` (peer deps opsional) di atas kontrak `AuthStore`
 - **Username management** — `checkUsername`, `setUsername`, `getMyUsername`, `findUserByUsername`
 - **Message search index** — `MessageSearchIndex` untuk pencarian full-text & regex atas riwayat pesan
