@@ -1,6 +1,6 @@
 Multi-Backend Auth Store
 
-Simpan auth state di file, SQLite, MongoDB, atau Redis lewat satu kontrak `AuthStore`.
+Simpan auth state di file, SQLite, MongoDB, Redis, atau NekoDB lewat satu kontrak `AuthStore`.
 
 [Dokumentasi utama](../README.md) · **Navigasi docs:** [beranda](index.md)
 
@@ -91,6 +91,98 @@ const { state, saveCreds } = await useRedisAuthState({
 ```
 
 `table` dipakai sebagai **prefix key** untuk Redis (default `furina:auth`).
+
+### NekoDB
+
+Install peer dependency:
+
+```bash
+npm install @nekodb/client
+```
+
+`useNekoDBAuth(db)` menerima instance yang **sudah Anda inisialisasi** —
+kredensial, cara koneksi, dan penutupan koneksi tetap di tangan Anda.
+
+#### Ambil kredensial NekoDB
+
+| Nilai | Di mana mendapatkannya |
+|---|---|
+| `host` | Endpoint cluster NekoDB Anda (mis. `cluster.example.com`) |
+| `username` | User database yang Anda buat di dashboard NekoDB |
+| `password` | Password user tersebut |
+
+Alternatifnya, `NekoDB.fromEnv()` membaca `NEKODB_HOST`, `NEKODB_USERNAME`, dan
+`NEKODB_PASSWORD` dari environment variable — lebih aman daripada hardcode.
+
+#### Cara pakai
+
+```javascript
+const { makeWASocket, useNekoDBAuth } = require('@vanzzz/furina-baileys')
+const NekoDB = require('@nekodb/client')
+
+const db = new NekoDB({
+  host: 'cluster.example.com',
+  username: 'furina',
+  password: process.env.NEKODB_PASSWORD,
+  logging: 'warn'
+})
+
+const { state, saveCreds } = await useNekoDBAuth(db, 'my_session')
+
+const sock = makeWASocket({ auth: state })
+sock.ev.on('creds.update', saveCreds)
+```
+
+`collectionName` bersifat opsional (default `baileys_auth`). Kalau satu koleksi
+dipakai untuk lebih dari satu bot, beri nama berbeda per bot.
+
+#### Tutup koneksi saat bot mati
+
+`useNekoDBAuth` **tidak pernah** memanggil `db.close()` — Anda pemilik koneksinya:
+
+```javascript
+process.on('SIGINT', () => {
+  sock.end()
+  db.close()
+  process.exit(0)
+})
+```
+
+#### L1 cache client (hati-hati untuk multi-proses)
+
+`@nekodb/client` punya L1 cache internal untuk `get`, dengan **TTL dalam
+milidetik** (default 10000 ms) dan `maxSize` (default 200 dokumen):
+
+```javascript
+const db = new NekoDB({
+  host: 'cluster.example.com',
+  username: 'furina',
+  password: process.env.NEKODB_PASSWORD,
+  cache: { ttl: 0 }   // 0 = matikan cache client
+})
+```
+
+Untuk satu instance bot, cache ini mempercepat pembacaan berulang. Kalau Anda
+**sengaja** membagi satu koleksi untuk beberapa proses, matikan cache client
+(`ttl: 0`) supaya satu proses tidak membaca salinan yang sudah kedaluwarsa.
+
+#### Penamaan dokumen
+
+NekoDB menghasilkan id dokumen sendiri, jadi setiap record dibedakan lewat field
+`k` (`creds.json`, `pre-key-1.json`, dst) dan ditandai field `________furina`.
+`keys()` dan `clear()` hanya menyentuh dokumen bertanda itu — record milik Anda
+sendiri di koleksi yang sama tidak akan tersentuh.
+
+#### Peringatan keamanan
+
+- **`@nekodb/client` bukan bagian dari audit dependency Furina.** Package ini
+  dikelola pihak ketiga dan hanya masuk sebagai peer dependency opsional ketika
+  Anda meng-Install-nya sendiri. **Jalankan `npm audit` (dan `npm audit fix`)
+  secara mandiri** pada proyek Anda — jangan berasumsi paket ini ikut terpantau
+  oleh audit repo ini.
+- Proses autentikasi ini menangani **Signal key dan kredensial login** Anda.
+  Simpan `NEKODB_PASSWORD` di environment variable/secret manager, jangan di
+  kode, dan pastikan host NekoDB Anda memakai TLS.
 
 ### Backend kustom
 
