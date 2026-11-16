@@ -184,6 +184,83 @@ sendiri di koleksi yang sama tidak akan tersentuh.
   Simpan `NEKODB_PASSWORD` di environment variable/secret manager, jangan di
   kode, dan pastikan host NekoDB Anda memakai TLS.
 
+### Backup & restore
+
+`exportAuthState(store)` mengemas seluruh session (creds + Signal keys) menjadi
+satu Buffer gzip ber-metadata — cocok untuk backup terjadwal atau memindahkan
+session antar mesin:
+
+```javascript
+const { makeWASocket, createFileAuthStore, exportAuthState } = require('@vanzzz/furina-baileys')
+const fs = require('fs')
+
+const store = await createFileAuthStore('./auth_info')
+const backup = await exportAuthState(store, { level: 9 })
+
+fs.writeFileSync('session.backup.gz', backup)
+```
+
+Memeriksa isi backup tanpa menulis apa pun:
+
+```javascript
+const { peekAuthBackup } = require('@vanzzz/furina-baileys')
+
+const info = peekAuthBackup(fs.readFileSync('session.backup.gz'))
+// { backend: 'file', timestamp: 1731120000000, hasCreds: true, recordCount: 12 }
+```
+
+Mengembalikannya ke store tujuan (record yang tidak ada di backup tidak
+disentuh — panggil `store.clear()` dulu bila ingin restore bersih):
+
+```javascript
+const { importAuthState } = require('@vanzzz/furina-baileys')
+
+await importAuthState(store, fs.readFileSync('session.backup.gz'))
+```
+
+Format envelope:
+
+```javascript
+{
+  version: 1,          // BACKUP_VERSION
+  timestamp: 1731120000000,   // epoch ms
+  backend: 'file',
+  data: {
+    creds: '<BufferJSON string>',   // opsional — absen bila belum pernah login
+    keys: { 'pre-key-1.json': '<BufferJSON string>', ... }
+  }
+}
+```
+
+Backup yang korup (bukan gzip, bukan JSON, `version` tak didukung, atau record
+bukan string) ditolak dengan `Boom` `statusCode: 400` dan pesan yang menyebut
+penyebabnya — tidak ada tulisan separuh jalan masuk ke store.
+
+### Migrasi antar backend
+
+`migrateAuthState(fromStore, toStore)` memindahkan session antar backend lewat
+kontrak `AuthStore` saja, tanpa socket:
+
+```javascript
+const {
+  createFileAuthStore,
+  createNekoDBAuthStore,
+  migrateAuthState
+} = require('@vanzzz/furina-baileys')
+
+const from = await createFileAuthStore('./auth_info')
+const to = createNekoDBAuthStore(db, 'bot_a_session')
+
+await migrateAuthState(from, to, {
+  onProgress: step => console.log('migrate:', step)   // read → write → verify → done
+})
+```
+
+Setelah menulis, setiap record dibaca ulang dari target dan dibandingkan dengan
+sumber. Jika ada yang tidak cocok, tulisan ke target **dibatalkan**: record yang
+sudah ada sebelumnya dipulihkan ke nilai lamanya, record baru dihapus — lalu
+error dilempar. Store sumber tidak pernah diubah.
+
 ### Backend kustom
 
 Implementasikan `AuthStore`, lalu pakai `makeAuthStateFromStore`:

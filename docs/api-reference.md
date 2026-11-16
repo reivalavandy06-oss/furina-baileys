@@ -125,7 +125,8 @@ Daftar API publik yang tersedia.
 - Username manager — `checkUsername`, `setUsername`, `setUsernamePin`, `getMyUsername`, `deleteUsername`, `findUserByUsername`, `isValidUsername`, `isValidPin`
 - Panorama — `buildPanoramaProfileImages`, `updatePanoramaProfilePicture`, `panoramaBannerHeight`
 - Signal noise — `suppressSignalNoise`, `SIGNAL_NOISE_PATTERNS`
-- Auth store — `makeAuthStateFromStore`, `createFileAuthStore`, `useSQLiteAuthState`, `useMongoDBAuthState`, `useRedisAuthState`
+- Auth store — `makeAuthStateFromStore`, `createFileAuthStore`, `createSQLiteAuthStore`, `createRedisAuthStore`, `createMongoAuthStore`, `createNekoDBAuthStore`, `useSQLiteAuthState`, `useMongoDBAuthState`, `useRedisAuthState`, `useNekoDBAuth`
+- Auth backup & migration — `exportAuthState`, `importAuthState`, `peekAuthBackup`, `migrateAuthState`, `BACKUP_VERSION`
 
 ### Event Invites
 
