@@ -1,6 +1,7 @@
 // furina-baileys — antiban/timing.ts
 // Gaussian jitter, sleep helper, human-like send, send window (jam tidur).
 
+import type { ILogger } from '../logger'
 import type { AntibanProfile } from './profiles'
 import { PROFILE_ORI } from './profiles'
 
@@ -71,18 +72,18 @@ export function checkSendWindow(
 }
 
 // Tunggu sampai di luar jam tidur. Return saat udah boleh kirim.
-export async function waitForSendWindow(profile: AntibanProfile): Promise<void> {
+export async function waitForSendWindow(profile: AntibanProfile, logger?: ILogger): Promise<void> {
 	const check = checkSendWindow(profile)
 	if (check.allowed) return
 
-	console.log(
-		`[furina-antiban] sleep window aktif (${check.reason}). ` +
-		`Tunggu ${Math.round(check.waitMs / 1000 / 60)} menit...`
+	logger?.info(
+		{ reason: check.reason, waitMs: check.waitMs },
+		`[furina-antiban] sleep window aktif, tunggu ${Math.round(check.waitMs / 1000 / 60)} menit`
 	)
 	await sleep(check.waitMs)
 
 	// Rekursif — kalau masih di dalam window (misal system sleep), tunggu lagi
-	return waitForSendWindow(profile)
+	return waitForSendWindow(profile, logger)
 }
 
 // ===== FURINA: HUMAN SEND =====

@@ -354,7 +354,7 @@ export class MessageBuilder {
             card.header = header
           } catch (e) {
             // Upload gagal → reset flag biar WhatsApp nggak coba render header kosong.
-            console.error('[furina-builder] carousel card ' + i + ' media upload failed:', e)
+            sock.logger.error({ err: e, cardIndex: i }, 'carousel card media upload failed')
             if (card.header) card.header.hasMediaAttachment = false
           }
         }

@@ -216,6 +216,23 @@ Dukungan kamu sangat berarti untuk keberlangsungan proyek ini!
 
 ---
 
+## 📢 Official WhatsApp Channel
+
+Pengumuman rilis, catatan update, dan informasi penting soal Furina-Baileys
+diumumkan lewat channel WhatsApp resmi:
+
+**https://whatsapp.com/channel/0029VbDSKZTJ93wMmFEmGH0s**
+
+Channel ini murni **informasi** — bukan tempat diskusi atau tanya jawab.
+
+Mengikutinya sepenuhnya **manual**: silakan buka link di atas dari HP atau
+WhatsApp Web, lalu tekan **Follow**. Library ini tidak membuat prompt CLI,
+tidak mencetak apa pun ke console saat bot menyala, dan tidak melakukan API
+call apa pun terkait channel ini — mengikuti channel atau tidak tidak
+berpengaruh sama sekali terhadap cara kerja library.
+
+---
+
 ## 📄 Lisensi
 
 **Apache License 2.0** dengan kewajiban atribusi.

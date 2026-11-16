@@ -261,7 +261,10 @@ export const uploadingNecessaryImages = async (
 				timeoutMs
 			})
 
-			await fs.unlink(filePath).catch(err => console.log('Error deleting temp file ', err))
+			// best-effort cleanup: the upload already succeeded and this module has no
+			// logger sink, so a leftover temp file is reported nowhere rather than
+			// sprayed onto the user's console
+			await fs.unlink(filePath).catch(() => {})
 
 			return { url: getUrlFromDirectPath(directPath) }
 		})
