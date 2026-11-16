@@ -18,7 +18,9 @@ import { BufferJSON } from './generics'
 
 export type { AuthStore, AuthStateOptions }
 
-const CREDS_KEY = 'creds.json'
+/** Record key holding AuthenticationCreds. Shared so backup/migration tooling
+ * can identify the creds record without re-deriving the naming scheme. */
+export const CREDS_KEY = 'creds.json'
 
 const recordKey = (type: string, id: string) => `${type}-${id}.json`
 
@@ -165,18 +167,12 @@ export const createFileAuthStore = async (folder: string): Promise<AuthStore> =>
 }
 
 // ── optional backends (lazy dynamic imports) ─────────────────────────────
-export const useSQLiteAuthState = async (
-	folder: string,
-	options: AuthStateOptions = {}
-): ReturnType<typeof makeAuthStateFromStore> => {
-	const mod = await lazyLoad('better-sqlite3')
-	const Database = mod['default'] as new (path: string) => SqliteDb
-	const table = options.table ?? 'furina_auth'
-	const path = options.path ?? join(folder, 'auth.db')
-
-	const db = new Database(path)
-	db.prepare('CREATE TABLE IF NOT EXISTS ' + table + ' (key TEXT PRIMARY KEY, value TEXT)').run()
-
+/**
+ * Builds an `AuthStore` over an already-open SQLite database. The caller owns the
+ * connection (and is responsible for creating the table) — this keeps the store
+ * pure enough to unit test against a mock `prepare()`.
+ */
+export const createSQLiteAuthStore = (db: SqliteDb, table = 'furina_auth'): AuthStore => {
 	const read = async (key: string): Promise<string | null> => {
 		const rows = db.prepare('SELECT value FROM ' + table + ' WHERE key = ?').all(key) as {
 			value: string
@@ -184,7 +180,7 @@ export const useSQLiteAuthState = async (
 		return rows[0]?.value ?? null
 	}
 
-	const store: AuthStore = {
+	return {
 		backend: 'sqlite',
 		get: read,
 		getMany: async keys => {
@@ -212,9 +208,54 @@ export const useSQLiteAuthState = async (
 			db.prepare('DELETE FROM ' + table).run()
 		}
 	}
-
-	return makeAuthStateFromStore(store)
 }
+
+export const useSQLiteAuthState = async (
+	folder: string,
+	options: AuthStateOptions = {}
+): ReturnType<typeof makeAuthStateFromStore> => {
+	const mod = await lazyLoad('better-sqlite3')
+	const Database = mod['default'] as new (path: string) => SqliteDb
+	const table = options.table ?? 'furina_auth'
+	const path = options.path ?? join(folder, 'auth.db')
+
+	const db = new Database(path)
+	db.prepare('CREATE TABLE IF NOT EXISTS ' + table + ' (key TEXT PRIMARY KEY, value TEXT)').run()
+
+	return makeAuthStateFromStore(createSQLiteAuthStore(db, table))
+}
+
+/**
+ * Builds an `AuthStore` over an already-connected MongoDB collection. `close` is
+ * optional — pass the client's disconnect when the store also owns the session.
+ */
+export const createMongoAuthStore = (collection: MongoCollectionLike, close?: () => Promise<void>): AuthStore => ({
+	backend: 'mongodb',
+	get: async key => (await collection.findOne({ key }))?.value ?? null,
+	getMany: async keys => {
+		const out: Record<string, string> = {}
+		const rows = await collection.find({ key: { $in: keys } }).toArray()
+		for (const row of rows) out[row.key] = row.value
+		return out
+	},
+	set: async (key, value) => {
+		await collection.replaceOne({ key }, { key, value }, { upsert: true })
+	},
+	setMany: async entries => {
+		for (const [key, value] of Object.entries(entries)) {
+			await collection.replaceOne({ key }, { key, value }, { upsert: true })
+		}
+	},
+	remove: async key => {
+		await collection.deleteOne({ key })
+		return true
+	},
+	keys: async () => (await collection.find({}, { projection: { key: 1 } }).toArray()).map(row => row.key),
+	clear: async () => {
+		await collection.deleteMany({})
+	},
+	close: close ? () => close() : undefined
+})
 
 export const useMongoDBAuthState = async (
 	options: AuthStateOptions = {}
@@ -228,38 +269,45 @@ export const useMongoDBAuthState = async (
 	const collectionName = options.table ?? 'auth'
 	const collection = client.db(database).collection(collectionName) as MongoCollectionLike
 
-	const store: AuthStore = {
-		backend: 'mongodb',
-		get: async key => (await collection.findOne({ key }))?.value ?? null,
-		getMany: async keys => {
-			const out: Record<string, string> = {}
-			const rows = await collection.find({ key: { $in: keys } }).toArray()
-			for (const row of rows) out[row.key] = row.value
-			return out
-		},
-		set: async (key, value) => {
-			await collection.replaceOne({ key }, { key, value }, { upsert: true })
-		},
-		setMany: async entries => {
-			for (const [key, value] of Object.entries(entries)) {
-				await collection.replaceOne({ key }, { key, value }, { upsert: true })
-			}
-		},
-		remove: async key => {
-			await collection.deleteOne({ key })
-			return true
-		},
-		keys: async () => (await collection.find({}, { projection: { key: 1 } }).toArray()).map(row => row.key),
-		clear: async () => {
-			await collection.deleteMany({})
-		},
-		close: async () => {
-			await client.close()
-		}
-	}
-
-	return makeAuthStateFromStore(store)
+	return makeAuthStateFromStore(createMongoAuthStore(collection, async () => client.close()))
 }
+
+/**
+ * Builds an `AuthStore` over an already-connected Redis client. `prefix` isolates
+ * one session inside a shared database.
+ */
+export const createRedisAuthStore = (client: RedisClientLike, prefix = 'furina:auth:'): AuthStore => ({
+	backend: 'redis',
+	get: async key => await client.get(prefix + key),
+	getMany: async keys => {
+		const values = await client.mGet(keys.map(key => prefix + key))
+		const out: Record<string, string> = {}
+		keys.forEach((key, index) => {
+			const value = values[index]
+			if (value !== null && value !== undefined) out[key] = value
+		})
+		return out
+	},
+	set: async (key, value) => {
+		await client.set(prefix + key, value)
+	},
+	setMany: async entries => {
+		for (const [key, value] of Object.entries(entries)) {
+			await client.set(prefix + key, value)
+		}
+	},
+	remove: async key => {
+		await client.del([prefix + key])
+		return true
+	},
+	keys: async () => (await client.keys(`${prefix}*`)).map(key => key.slice(prefix.length)),
+	clear: async () => {
+		await client.del(await client.keys(`${prefix}*`))
+	},
+	close: async () => {
+		await client.quit()
+	}
+})
 
 export const useRedisAuthState = async (options: AuthStateOptions = {}): ReturnType<typeof makeAuthStateFromStore> => {
 	const mod = await lazyLoad('redis')
@@ -268,40 +316,7 @@ export const useRedisAuthState = async (options: AuthStateOptions = {}): ReturnT
 	const client = createClient({ url: options.url })
 	await client.connect()
 
-	const store: AuthStore = {
-		backend: 'redis',
-		get: async key => await client.get(prefix + key),
-		getMany: async keys => {
-			const values = await client.mGet(keys.map(key => prefix + key))
-			const out: Record<string, string> = {}
-			keys.forEach((key, index) => {
-				const value = values[index]
-				if (value !== null && value !== undefined) out[key] = value
-			})
-			return out
-		},
-		set: async (key, value) => {
-			await client.set(prefix + key, value)
-		},
-		setMany: async entries => {
-			for (const [key, value] of Object.entries(entries)) {
-				await client.set(prefix + key, value)
-			}
-		},
-		remove: async key => {
-			await client.del([prefix + key])
-			return true
-		},
-		keys: async () => (await client.keys(`${prefix}*`)).map(key => key.slice(prefix.length)),
-		clear: async () => {
-			await client.del(await client.keys(`${prefix}*`))
-		},
-		close: async () => {
-			await client.quit()
-		}
-	}
-
-	return makeAuthStateFromStore(store)
+	return makeAuthStateFromStore(createRedisAuthStore(client, prefix))
 }
 
 // ── structural types for the optional clients (no runtime dependency) ────

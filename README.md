@@ -192,7 +192,7 @@ Ringkasan di atas adalah pintu masuk. Dokumentasi lengkap dipisah per topik supa
 | [AI Rich Message](docs/ai-rich-message.md) | Teks kaya, code/tabel, embedded screens, album, tombol, DSL markdown |
 | [VoIP (Fondasi)](docs/voip.md) | Deteksi panggilan masuk & penolakan call (eksperimental) |
 | [Commerce](docs/commerce.md) | Payment request, katalog produk, fetch catalog bisnis |
-| [Multi-Backend Auth Store](docs/auth-stores.md) | File/SQLite/MongoDB/Redis lewat kontrak `AuthStore` |
+| [Multi-Backend Auth Store](docs/auth-stores.md) | File/SQLite/MongoDB/Redis/NekoDB lewat kontrak `AuthStore` |
 | [Utilities](docs/utilities.md) | Username Manager, Search Index, Scheduler, Auto-Reply, Anti-Spam, HD Media |
 | [Event Invites](docs/events.md) | Undangan acara (event) untuk chat/grup |
 | [Integrasi Trakteer](docs/integrations/trakteer.md) | Listener WebSocket donasi Trakteer (opsional) |

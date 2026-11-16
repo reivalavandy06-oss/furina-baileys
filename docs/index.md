@@ -14,7 +14,7 @@ Dokumentasi lengkap `@vanzzz/furina-baileys`. README di root repo berisi ringkas
 [AI Rich Message](ai-rich-message.md) | Teks kaya, code/tabel, embedded screens, album, tombol, DSL markdown |
 [VoIP (Fondasi)](voip.md) | Deteksi panggilan masuk dan penolakan call (eksperimental) |
 [Commerce](commerce.md) | Payment request, katalog produk, dan fetch catalog bisnis |
-[Multi-Backend Auth Store](auth-stores.md) | File/SQLite/MongoDB/Redis lewat kontrak `AuthStore` |
+[Multi-Backend Auth Store](auth-stores.md) | File/SQLite/MongoDB/Redis/NekoDB lewat kontrak `AuthStore` |
 [Utilities](utilities.md) | Username Manager, Search Index, Scheduler, Auto-Reply, Anti-Spam, HD Media |
 [Event Invites](events.md) | Undangan acara (event) untuk chat/grup |
 [Integrasi Trakteer](integrations/trakteer.md) | Listener WebSocket donasi Trakteer (opsional) |
