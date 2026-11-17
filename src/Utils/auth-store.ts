@@ -67,6 +67,9 @@ export const makeAuthStateFromStore = async (
 	store: AuthStore
 ): Promise<{ state: AuthenticationState; saveCreds: () => Promise<void> }> => {
 	const rawCreds = await store.get(CREDS_KEY)
+	if (rawCreds !== null && typeof rawCreds !== 'string') {
+		throw new Error('Stored authentication credentials are malformed')
+	}
 	const creds: AuthenticationCreds = rawCreds
 		? (JSON.parse(rawCreds, BufferJSON.reviver) as AuthenticationCreds)
 		: initAuthCreds()

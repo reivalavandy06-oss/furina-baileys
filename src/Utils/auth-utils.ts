@@ -86,15 +86,31 @@ export function makeCacheableSignalKeyStore(
 		async set(data) {
 			return cacheMutex.runExclusive(async () => {
 				let keys = 0
+				const cacheKeys: string[] = []
 				for (const type in data) {
 					for (const id in data[type as keyof SignalDataTypeMap]) {
-						await cache.set(getUniqueId(type, id), data[type as keyof SignalDataTypeMap]![id]!)
+						cacheKeys.push(getUniqueId(type, id))
 						keys += 1
 					}
 				}
 
+				try {
+					await store.set(data)
+				} catch (error) {
+					// A rejected write may have failed before persistence or after the
+					// backend committed but before its acknowledgement reached us. The
+					// only safe cache state is unknown; force the next read to consult storage.
+					for (const cacheKey of cacheKeys) await cache.del(cacheKey)
+					throw error
+				}
+
+				for (const type in data) {
+					for (const id in data[type as keyof SignalDataTypeMap]) {
+						await cache.set(getUniqueId(type, id), data[type as keyof SignalDataTypeMap]![id]!)
+					}
+				}
+
 				logger?.trace({ keys }, 'updated cache')
-				await store.set(data)
 			})
 		},
 		async clear() {

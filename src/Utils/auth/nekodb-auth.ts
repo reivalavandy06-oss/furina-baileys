@@ -131,10 +131,22 @@ export const createNekoDBAuthStore = (db: NekoDBLike, collectionName = 'baileys_
 		const id = await resolveId(key)
 		if (!id) return null
 
-		const doc = (await client.get(collection, id)) as { value?: unknown } | null
+		let doc: { value?: unknown } | null
+		try {
+			doc = (await client.get(collection, id)) as { value?: unknown } | null
+		} catch (error) {
+			if ((error as { name?: string }).name === 'NotFoundError') {
+				ids.delete(key)
+				return null
+			}
+			throw error
+		}
 		if (!doc || typeof doc !== 'object') return null
+		if (typeof doc.value !== 'string') {
+			throw new Error('Stored NekoDB auth record is malformed')
+		}
 
-		return typeof doc.value === 'string' ? doc.value : null
+		return doc.value
 	}
 
 	// `search` + insert/update is not atomic, so concurrent writers for one key
@@ -166,7 +178,12 @@ export const createNekoDBAuthStore = (db: NekoDBLike, collectionName = 'baileys_
 		const id = await resolveId(key)
 		if (!id) return false
 
-		await client.delete(collection, id)
+		try {
+			await client.delete(collection, id)
+		} catch (error) {
+			ids.delete(key)
+			throw error
+		}
 		ids.delete(key)
 		return true
 	}

@@ -72,7 +72,14 @@ const parseEnvelope = (buffer: Buffer): AuthBackup => {
 	}
 
 	const data = envelope.data as { creds?: unknown; keys?: unknown } | undefined
-	if (!data || typeof data !== 'object' || typeof data.keys !== 'object' || data.keys === null) {
+	if (
+		!data ||
+		typeof data !== 'object' ||
+		Array.isArray(data) ||
+		typeof data.keys !== 'object' ||
+		data.keys === null ||
+		Array.isArray(data.keys)
+	) {
 		throw new Boom('Backup rusak: `data.keys` wajib berupa objek.', { statusCode: 400 })
 	}
 
