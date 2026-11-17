@@ -27,6 +27,7 @@ Dokumentasi lengkap `@vanzzz/furina-baileys`. README di root repo berisi ringkas
 |---|---|
 [Message Detection](message-detection.md) | Mengenali 97 tipe pesan |
 [API Reference](api-reference.md) | Daftar API publik |
+[Architecture Audit](architecture-audit.md) | Fitur reliabilitas yang sudah ada, gap, risiko, dan roadmap per file |
 [Troubleshooting](troubleshooting.md) | Masalah umum dan solusinya |
 [License](license.md) | Apache-2.0 dan kewajiban atribusi |
 [Credits](credits.md) | Kredit proyek |
