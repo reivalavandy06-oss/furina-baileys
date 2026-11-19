@@ -62,6 +62,7 @@
     "release": "release-it",
     "test": "node --experimental-vm-modules node_modules/jest/bin/jest.js --testMatch '**/*.test.ts'",
     "test:e2e": "NODE_TLS_REJECT_UNAUTHORIZED=0 node --experimental-vm-modules node_modules/jest/bin/jest.js --runInBand --forceExit --testMatch '**/*.test-e2e.ts'",
+    "test:integration": "node --import tsx scripts/check-integration-env.ts --run",
     "update:version": "tsx ./scripts/update-version.ts"
   },
   "dependencies": {
