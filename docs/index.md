@@ -28,6 +28,7 @@ Dokumentasi lengkap `@vanzzz/furina-baileys`. README di root repo berisi ringkas
 [Message Detection](message-detection.md) | Mengenali 97 tipe pesan |
 [API Reference](api-reference.md) | Daftar API publik |
 [Architecture Audit](architecture-audit.md) | Fitur reliabilitas yang sudah ada, gap, risiko, dan roadmap per file |
+[Storage Safety Audit — Fase 13.3](architecture/storage-safety-audit.md) | Audit identifier SQLite, konsistensi migrasi, disposal, isolasi harness, dan rencana Fase 13.4 |
 [Test Integrasi Auth Store](testing/auth-store-integration.md) | Suite backend nyata (opt-in), isolasi namespace, dan status cakupan |
 [Troubleshooting](troubleshooting.md) | Masalah umum dan solusinya |
 [License](license.md) | Apache-2.0 dan kewajiban atribusi |
