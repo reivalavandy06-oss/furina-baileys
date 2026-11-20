@@ -555,3 +555,71 @@ Hasil validasi dokumentasi:
   memeriksa keberadaan file tujuan, bukan validitas setiap anchor.
 - Diff source `src/`, `scripts/`, `package.json`, dan `yarn.lock` kosong. Status
   akhir yang diharapkan hanya `docs/index.md` modified dan laporan baru untracked.
+
+## Tindak lanjut implementasi — Fase 13.4
+
+Bagian audit di atas dipertahankan sebagai temuan pada HEAD `48c58b5`, bukan
+deskripsi source sesudah remediasi. Audit tersebut disimpan terpisah dalam commit
+`1cf3c0b` (`docs: add storage safety audit`). Perubahan storage berikutnya bersifat
+security-sensitive karena menyentuh persistence auth; tidak mengubah crypto,
+format session, versi backup, root package type, atau protokol WhatsApp.
+
+### Yang diperbaiki
+
+- **R1/R2:** migration dan restore berbagi helper internal recovery. Destination
+  snapshot hanya meliputi touched keys; write/verify rejection dan mismatch memicu
+  compensating rollback. Old values dipulihkan, introduced keys dihapus, seluruh
+  key recovery tetap dicoba, dan setiap hasil recovery dibaca ulang. Primary error
+  tersedia di `cause`, semua recovery errors di `data.rollbackErrors`, dan keadaan
+  yang belum pulih dinyatakan lewat `data.destinationMayBePartial`.
+- **R3/R5:** driver readiness wajib, konfigurasi test divalidasi, report-only
+  tidak membuat directory, namespace UUID stabil per context, logical session
+  di-hash untuk file/prefix/collection, dan cleanup tercatat pada context pemilik.
+  SQLite memakai tabel sama untuk schema dan query; binary assertions memakai
+  BufferJSON reviver. Missing backend tetap NOT RUN.
+- **R4:** satu helper identifier dipakai seluruh tujuh SQL paths, dengan quoting
+  per komponen, escape double quotes, dukungan `schema.table` dan identifier
+  ber-quote legacy, serta rejection untuk malformed structure. Ini perbaikan
+  interpretasi identifier, bukan klaim exploit SQL injection telah direproduksi.
+- **R6 dan bagian harness R7:** resource didaftarkan sebelum init berisiko,
+  migration suites memasang teardown, Neko close mempertahankan receiver, dan
+  registry disposal memakai satu Promise bersama serta AggregateError berisi
+  semua failures. SQLite state tests memakai raw owned handle. Wrapper produksi
+  mencoba close owned resource bila initialization gagal, dengan kedua causes
+  dipertahankan jika close ikut gagal.
+
+### Yang tetap menjadi batasan
+
+Recovery bukan transaksi atomic, durable journal, fencing, atau crash-resume.
+Caller harus menghentikan writer dan menunggu hasil sebelum cutover; source dan
+backup tetap disimpan. `verify: false`/`rollback: false` yang sudah ada tetap
+didukung. Record strings tetap opaque; byte comparison bukan validasi skema auth
+atau bukti sesi berhasil terhubung. Dua wrappers atas physical storage sama
+belum dapat dideteksi. Memory source/backup/readback tetap O(record bytes), dan
+destination snapshot O(previous touched bytes); gzip tetap sinkron.
+
+Successful useXAuthState wrapper masih tidak mengekspos close handle. Raw clients
+dan application shutdown tetap dimiliki caller. Disposer yang tidak settle masih
+dapat menahan teardown. Signal-repository close exception, shutdown completion
+socket concurrent, dan timeout/prekey-upload cancellation di audit R7 belum diubah;
+perbaikannya perlu review tersendiri agar ordering auth/protokol tidak terganggu.
+Driver-native transactions, Redis acknowledgement durability, Neko connection/API
+dan race lintas proses, serta grammar better-sqlite3 nyata belum diverifikasi.
+
+### Validasi remediasi
+
+- Regression readiness, recovery, dan identifier dijalankan sebelum fix dan
+  menghasilkan failure; setelah fix focused auth/harness tests lulus.
+- Full Jest default: **72 suites / 1.327 tests passed; 0 failed, 0 skipped**.
+  Angka ini termasuk test doubles harness, bukan real backend integration.
+- TypeScript `tsc --noEmit` dan lint/typecheck lulus dengan 0 errors; warning
+  legacy tetap ada. CJS/ESM build, smoke public exports + recovery, serta consumer
+  declaration TypeScript lulus.
+- `npm run check:docs` dan `git diff --check` lulus. `npm pack --dry-run --json`
+  lulus setelah smoke/declaration, dengan 1.401 entries, 2.110.197 bytes packed,
+  18.990.904 bytes unpacked, tanpa test fixtures/scripts pengujian atau `.env`.
+- Runner --run diuji dengan test configuration dihapus dari child environment:
+  3 backend NOT RUN, exit 2, tidak menjalankan integrasi. **0 backend nyata diuji**.
+
+Kontrak dan prosedur recovery terbaru ada di [Auth Store](../auth-stores.md);
+ownership/isolation pengujian ada di [harness integrasi](../testing/auth-store-integration.md).

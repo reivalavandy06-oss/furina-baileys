@@ -6,9 +6,8 @@
 
 import { BufferJSON } from '../../../Utils/generics'
 import { integrationSuite } from './suite'
-import { realAuthState, realStore } from './stores'
 
-await integrationSuite('auth state conformance', 'redis', _ready => {
+await integrationSuite('auth state conformance', 'redis', (_ready, { realAuthState, realStore }) => {
 	const unique = (name: string) => `it-${name}-${Date.now()}`
 	const open = (name: string) => realAuthState('redis', unique(name))
 	const store = (name: string) => realStore('redis', unique(name))
@@ -64,7 +63,7 @@ await integrationSuite('auth state conformance', 'redis', _ready => {
 		expect(info.hasCreds).toBe(true)
 		const restored = await target.get('pre-key-7.json')
 		expect(restored).not.toBeNull()
-		expect(Array.from(JSON.parse(restored!).public)).toEqual([7])
+		expect(Array.from(JSON.parse(restored!, BufferJSON.reviver).public)).toEqual([7])
 	})
 
 	it('exposes the documented record-key naming for pre-keys and sessions', async () => {

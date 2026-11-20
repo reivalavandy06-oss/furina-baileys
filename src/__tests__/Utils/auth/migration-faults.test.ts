@@ -31,19 +31,20 @@ describe.each(directions)('$from -> $to fault-injected migration', ({ from, to }
 	})
 
 	it.each(['before', 'after'] as const)(
-		'surfaces second-write failure %s persistence without claiming atomic rollback',
+		'recovers second-write failure %s persistence without claiming atomicity',
 		async phase => {
 			const source = sourceHarness.open()
 			const target = targetHarness.open()
 			await source.setMany(sessionRecords())
 			const error = targetHarness.faults.fail('write', phase, 2)
 			const steps: string[] = []
-			await expect(migrateAuthState(source, target, { onProgress: step => steps.push(step) })).rejects.toBe(error)
+			await expect(migrateAuthState(source, target, { onProgress: step => steps.push(step) })).rejects.toMatchObject({
+				cause: error
+			})
 			expect(steps).not.toContain('done')
 			expectRecords(await snapshot(source), sessionRecords())
 			const partial = await snapshot(targetHarness.open())
-			expect(Object.keys(partial)).toHaveLength(phase === 'before' ? 1 : 2)
-			// Current rollback handles value mismatch, not a rejection from setMany.
+			expect(Object.keys(partial)).toHaveLength(0)
 			await migrateAuthState(source, targetHarness.open())
 			expectRecords(await snapshot(targetHarness.open()), sessionRecords())
 		}
@@ -60,7 +61,7 @@ describe.each(directions)('$from -> $to fault-injected migration', ({ from, to }
 					if (step === 'verify') targetHarness.faults.disconnect(error)
 				}
 			})
-		).rejects.toBe(error)
+		).rejects.toMatchObject({ cause: error, data: { destinationMayBePartial: true } })
 		targetHarness.faults.reconnect()
 		expectRecords(await snapshot(source), sessionRecords())
 		expectRecords(await snapshot(targetHarness.open()), sessionRecords())
@@ -134,7 +135,7 @@ describe('migration boundaries', () => {
 			await gate.entered
 			const error = target.faults.disconnect()
 			gate.release()
-			expect((await pending)[0]).toEqual({ status: 'rejected', reason: error })
+			expect((await pending)[0]).toMatchObject({ status: 'rejected', reason: { cause: error } })
 			expectRecords(await snapshot(source.open()), sessionRecords())
 			target.faults.reconnect()
 			await migrateAuthState(source.open(), target.open())

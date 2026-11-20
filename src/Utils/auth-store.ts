@@ -15,6 +15,8 @@ import { proto } from '../../WAProto/index.js'
 import type { AuthStateOptions, AuthStore, AuthenticationCreds, AuthenticationState, SignalDataTypeMap } from '../Types'
 import { initAuthCreds } from './auth-utils'
 import { BufferJSON } from './generics'
+import { quoteSQLiteIdentifier } from './auth/sqlite-identifier'
+import { closeAfterFailedInitialization } from './auth/owned-resource'
 
 export type { AuthStore, AuthStateOptions }
 
@@ -42,6 +44,7 @@ interface SqliteStatement {
 
 interface SqliteDb {
 	prepare: (sql: string) => SqliteStatement
+	close?: () => void
 }
 
 /**
@@ -176,8 +179,9 @@ export const createFileAuthStore = async (folder: string): Promise<AuthStore> =>
  * pure enough to unit test against a mock `prepare()`.
  */
 export const createSQLiteAuthStore = (db: SqliteDb, table = 'furina_auth'): AuthStore => {
+	const identifier = quoteSQLiteIdentifier(table)
 	const read = async (key: string): Promise<string | null> => {
-		const rows = db.prepare('SELECT value FROM ' + table + ' WHERE key = ?').all(key) as {
+		const rows = db.prepare('SELECT value FROM ' + identifier + ' WHERE key = ?').all(key) as {
 			value: string
 		}[]
 		return rows[0]?.value ?? null
@@ -195,20 +199,20 @@ export const createSQLiteAuthStore = (db: SqliteDb, table = 'furina_auth'): Auth
 			return out
 		},
 		set: async (key, value) => {
-			db.prepare('INSERT OR REPLACE INTO ' + table + ' (key, value) VALUES (?, ?)').run(key, value)
+			db.prepare('INSERT OR REPLACE INTO ' + identifier + ' (key, value) VALUES (?, ?)').run(key, value)
 		},
 		setMany: async entries => {
 			for (const [key, value] of Object.entries(entries)) {
-				db.prepare('INSERT OR REPLACE INTO ' + table + ' (key, value) VALUES (?, ?)').run(key, value)
+				db.prepare('INSERT OR REPLACE INTO ' + identifier + ' (key, value) VALUES (?, ?)').run(key, value)
 			}
 		},
 		remove: async key => {
-			db.prepare('DELETE FROM ' + table + ' WHERE key = ?').run(key)
+			db.prepare('DELETE FROM ' + identifier + ' WHERE key = ?').run(key)
 			return true
 		},
-		keys: async () => (db.prepare('SELECT key FROM ' + table).all() as { key: string }[]).map(row => row.key),
+		keys: async () => (db.prepare('SELECT key FROM ' + identifier).all() as { key: string }[]).map(row => row.key),
 		clear: async () => {
-			db.prepare('DELETE FROM ' + table).run()
+			db.prepare('DELETE FROM ' + identifier).run()
 		}
 	}
 }
@@ -217,15 +221,20 @@ export const useSQLiteAuthState = async (
 	folder: string,
 	options: AuthStateOptions = {}
 ): ReturnType<typeof makeAuthStateFromStore> => {
+	const table = options.table ?? 'furina_auth'
+	const identifier = quoteSQLiteIdentifier(table)
 	const mod = await lazyLoad('better-sqlite3')
 	const Database = mod['default'] as new (path: string) => SqliteDb
-	const table = options.table ?? 'furina_auth'
 	const path = options.path ?? join(folder, 'auth.db')
 
 	const db = new Database(path)
-	db.prepare('CREATE TABLE IF NOT EXISTS ' + table + ' (key TEXT PRIMARY KEY, value TEXT)').run()
-
-	return makeAuthStateFromStore(createSQLiteAuthStore(db, table))
+	return closeAfterFailedInitialization(
+		async () => {
+			db.prepare('CREATE TABLE IF NOT EXISTS ' + identifier + ' (key TEXT PRIMARY KEY, value TEXT)').run()
+			return makeAuthStateFromStore(createSQLiteAuthStore(db, table))
+		},
+		() => db.close?.()
+	)
 }
 
 /**
@@ -266,13 +275,16 @@ export const useMongoDBAuthState = async (
 	const mod = await lazyLoad('mongodb')
 	const MongoClient = mod['MongoClient'] as new (url: string) => MongoClientLike
 	const client = new MongoClient(options.url ?? 'mongodb://127.0.0.1:27017')
-	await client.connect()
-
-	const database = options.database ?? 'furina'
-	const collectionName = options.table ?? 'auth'
-	const collection = client.db(database).collection(collectionName) as MongoCollectionLike
-
-	return makeAuthStateFromStore(createMongoAuthStore(collection, async () => client.close()))
+	return closeAfterFailedInitialization(
+		async () => {
+			await client.connect()
+			const database = options.database ?? 'furina'
+			const collectionName = options.table ?? 'auth'
+			const collection = client.db(database).collection(collectionName) as MongoCollectionLike
+			return makeAuthStateFromStore(createMongoAuthStore(collection, async () => client.close()))
+		},
+		() => client.close()
+	)
 }
 
 /**
@@ -317,9 +329,15 @@ export const useRedisAuthState = async (options: AuthStateOptions = {}): ReturnT
 	const createClient = mod['createClient'] as (opts?: { url?: string }) => RedisClientLike
 	const prefix = `${options.table ?? 'furina:auth'}:`
 	const client = createClient({ url: options.url })
-	await client.connect()
-
-	return makeAuthStateFromStore(createRedisAuthStore(client, prefix))
+	return closeAfterFailedInitialization(
+		async () => {
+			await client.connect()
+			return makeAuthStateFromStore(createRedisAuthStore(client, prefix))
+		},
+		async () => {
+			if (client.isOpen !== false) await client.quit()
+		}
+	)
 }
 
 // ── structural types for the optional clients (no runtime dependency) ────
@@ -347,6 +365,7 @@ interface MongoClientLike {
 }
 
 interface RedisClientLike {
+	isOpen?: boolean
 	connect: () => Promise<void>
 	get: (key: string) => Promise<string | null>
 	mGet: (keys: string[]) => Promise<(string | null)[]>

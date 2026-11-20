@@ -74,24 +74,21 @@ describe.each(backends)('%s backup/restore with injected storage failures', back
 		expectRecords(await snapshot(harness.open('target')), sessionRecords())
 	})
 
-	it.each(['before', 'after'] as const)(
-		'reports partial restore when the second write fails %s persistence',
-		async phase => {
-			const source = harness.open('source')
-			await source.setMany(sessionRecords())
-			const backup = await exportAuthState(source)
-			const target = harness.open('target')
-			const error = harness.faults.fail('write', phase, 2)
-			await expect(importAuthState(target, backup)).rejects.toBe(error)
-			const reopened = harness.open('target')
-			expect((await reopened.get(CREDS_KEY)) === sessionRecords()[CREDS_KEY]).toBe(true)
-			expect(await reopened.get('pre-key-1.json')).toBe(phase === 'after' ? sessionRecords()['pre-key-1.json'] : null)
-			expect(await reopened.get('session-peer.json')).toBeNull()
-			// Restore documents overwrite semantics, not atomicity. A retry converges.
-			await importAuthState(reopened, backup)
-			expectRecords(await snapshot(harness.open('target')), sessionRecords())
-		}
-	)
+	it.each(['before', 'after'] as const)('recovers restore when the second write fails %s persistence', async phase => {
+		const source = harness.open('source')
+		await source.setMany(sessionRecords())
+		const backup = await exportAuthState(source)
+		const target = harness.open('target')
+		const error = harness.faults.fail('write', phase, 2)
+		await expect(importAuthState(target, backup)).rejects.toMatchObject({ cause: error })
+		const reopened = harness.open('target')
+		expect(await reopened.get(CREDS_KEY)).toBeNull()
+		expect(await reopened.get('pre-key-1.json')).toBeNull()
+		expect(await reopened.get('session-peer.json')).toBeNull()
+		// Compensating recovery restores this empty destination; a retry converges.
+		await importAuthState(reopened, backup)
+		expectRecords(await snapshot(harness.open('target')), sessionRecords())
+	})
 
 	it('exposes invalid serialized record content when the restored session is opened', async () => {
 		const target = harness.open('target')

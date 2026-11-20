@@ -10,12 +10,12 @@
 // `describe` body itself stays synchronous.
 
 import { CHECKS, isReady, type BackendName, type Readiness } from './availability'
-import { disposeAll } from './stores'
+import { createIntegrationStores } from './stores'
 
 export const integrationSuite = async (
 	label: string,
 	backend: BackendName,
-	body: (ready: Readiness) => void
+	body: (ready: Readiness, stores: ReturnType<typeof createIntegrationStores>) => void
 ): Promise<void> => {
 	const check = await CHECKS[backend]()
 
@@ -30,16 +30,15 @@ export const integrationSuite = async (
 	}
 
 	const ready = check
+	const stores = createIntegrationStores()
 
 	describe(`${label} — real ${backend} (namespace per run)`, () => {
-		// Connections first, then the namespace: closing a client after its keys
-		// were deleted would leave the next suite nothing to observe.
+		// The context registers cleanup in dependency order, including failed setup.
 		afterAll(async () => {
-			await disposeAll()
-			await ready.cleanup()
+			await stores.disposeAll()
 		})
 
-		body(ready)
+		body(ready, stores)
 	})
 }
 

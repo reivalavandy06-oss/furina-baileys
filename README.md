@@ -150,6 +150,12 @@ start()
 
 ---
 
+Auth Store mendukung recovery best-effort untuk migrasi dan restore: snapshot
+touched destination records, verifikasi readback, dan pemulihan nilai lama bila
+gagal. Ini bukan transaksi atomic; hentikan writer dan jangan aktifkan destination
+yang reject. SQLite mendukung nama literal ber-quote dan `schema.table` secara
+konsisten. Lihat [kontrak recovery dan ownership](docs/auth-stores.md).
+
 ## 🔄 Migrasi dari `furina-baileys`
 
 Paket ini menggantikan paket unscoped `furina-baileys`.

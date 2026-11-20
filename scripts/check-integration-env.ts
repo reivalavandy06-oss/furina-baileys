@@ -51,6 +51,7 @@ const runIntegration = () =>
 			{ stdio: 'inherit' }
 		)
 		child.on('exit', code => resolve(code ?? 1))
+		child.on('error', () => resolve(1))
 	})
 
 const main = async () => {
@@ -79,7 +80,7 @@ const main = async () => {
 	process.exit(await runIntegration())
 }
 
-main().catch(error => {
-	console.error('Fatal error:', error)
+main().catch(() => {
+	console.error('Integration runner failed; test environment could not be verified.')
 	process.exit(1)
 })

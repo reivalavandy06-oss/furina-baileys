@@ -59,6 +59,18 @@ const { state, saveCreds } = await useSQLiteAuthState('./', {
 })
 ```
 
+SQLite menerima nama literal sederhana (`auth`, `auth-store`, `auth store`, atau
+reserved word), satu `schema.table` seperti `main.auth`, serta komponen ber-quote
+SQLite yang valid (`"auth-store"`, `"main"."auth"`, backtick, bracket, atau single
+quote legacy). Titik di dalam quote adalah bagian nama literal: `"my.app"`.
+Double quote di dalam nama ditulis dua kali: `"a""b"`. Setiap komponen di-decode
+lalu di-quote kembali dengan double quote; nama tidak disanitasi menjadi nama lain.
+Quote tidak tertutup, komponen kosong, lebih dari dua komponen, control/NUL, atau
+fragmen struktur SQL mentah ditolak dengan Boom 400 sebelum membuka DB. Gunakan
+quote eksplisit bila nama literal memuat karakter sintaks khusus. Helper tidak
+memberi otorisasi akses schema/tabel, dan schema attached harus sudah disiapkan
+caller pada factory raw.
+
 ### MongoDB
 
 ```bash
@@ -209,8 +221,9 @@ const info = peekAuthBackup(fs.readFileSync('session.backup.gz'))
 // { backend: 'file', timestamp: 1731120000000, hasCreds: true, recordCount: 12 }
 ```
 
-Mengembalikannya ke store tujuan (record yang tidak ada di backup tidak
-disentuh — panggil `store.clear()` dulu bila ingin restore bersih):
+Mengembalikannya ke destination yang tidak aktif. Record yang tidak ada di backup
+tetap dipertahankan. Untuk restore bersih gunakan namespace baru, dan simpan
+backup destination awal; jangan clear satu-satunya salinan sesi:
 
 ```javascript
 const { importAuthState } = require('@vanzzz/furina-baileys')
@@ -236,6 +249,17 @@ Backup yang korup (bukan gzip, bukan JSON, `version` tak didukung, atau record
 bukan string) ditolak dengan `Boom` `statusCode: 400` dan pesan yang menyebut
 penyebabnya — tidak ada tulisan separuh jalan masuk ke store.
 
+Import memvalidasi seluruh envelope sebelum mutation, mengambil snapshot hanya
+key destination yang akan disentuh, lalu menulis dan membaca ulang setiap record.
+Format backup version 1 tetap sama. Isi record tetap string opaque agar backup
+lama kompatibel; validasi envelope bukan validasi skema credentials/Signal keys.
+Field creds dan record creds dalam keys yang saling bertentangan ditolak.
+
+Write error, acknowledgement gagal setelah persist, missing/mismatched record,
+atau verification read error memicu rollback best-effort. Nilai lama dipulihkan,
+key baru dihapus, dan hasil recovery dibaca ulang per key. Semua key recovery
+tetap dicoba walau satu gagal. Backup asli tidak diubah.
+
 ### Migrasi antar backend
 
 `migrateAuthState(fromStore, toStore)` memindahkan session antar backend lewat
@@ -256,10 +280,46 @@ await migrateAuthState(from, to, {
 })
 ```
 
-Setelah menulis, setiap record dibaca ulang dari target dan dibandingkan dengan
-sumber. Jika ada yang tidak cocok, tulisan ke target **dibatalkan**: record yang
-sudah ada sebelumnya dipulihkan ke nilai lamanya, record baru dihapus — lalu
-error dilempar. Store sumber tidak pernah diubah.
+Migrasi memeriksa bahwa semua key hasil enumerasi source memiliki nilai string,
+mengambil snapshot hanya touched destination keys, menulis lalu membandingkan
+seluruh expected raw records, termasuk credentials dan Signal keys. Extra keys
+destination tetap dipertahankan. Source hanya dibaca; dua wrapper yang menunjuk
+storage fisik sama tidak dapat dideteksi dengan object identity.
+
+Write/verification error memicu recovery seperti restore. Opsi lama
+`verify: false` tetap melewati verification; `rollback: false` menonaktifkan
+recovery. Throw dari callback sesudah write juga memicu recovery; throw callback
+rollback disimpan terpisah tanpa menghentikan pemulihan key berikutnya.
+
+### Error recovery, concurrency, dan ownership
+
+Error sesudah mutation berupa Boom 500: `error.cause` menyimpan original error;
+`error.data` memuat `phase`, `rollbackAttempted`, `rollbackErrors`, `progressErrors`,
+dan `destinationMayBePartial`. Semua causes tetap dapat diperiksa. Jangan log
+seluruh object mentah karena driver error mungkin memuat endpoint/data sensitif.
+Pesan utama tidak menyisipkan credentials atau nama record.
+
+Setiap rejection berarti destination tidak boleh langsung diaktifkan.
+`destinationMayBePartial: false` berarti touched values berhasil dikembalikan dan
+dibaca ulang saat recovery itu; `true` berarti recovery dilewati atau sebagian
+operasi/readback gagal. Tidak ada completion marker persisten setelah crash.
+Caller perlu menyimpan hasil cutover di luar auth records dan mempertahankan
+source sampai selesai. Retry memakai source/backup stabil dan destination terpisah.
+
+Ini **bukan transaksi atomic**. Hentikan dan tunggu seluruh writer pada kedua
+storage, termasuk `saveCreds`, sebelum migrasi/restore. Concurrent writer dapat
+tertimpa rollback; crash atau backend gagal dapat menghentikan recovery. Common
+AuthStore tidak menyediakan lock, durable snapshot, atau transaksi lintas backend.
+Snapshot RAM hanya mencakup nilai lama key yang disentuh, bukan seluruh database
+destination. Source, backup, dan readback tetap di memori; gzip tetap sinkron.
+
+Wrapper SQLite/MongoDB/Redis mencoba menutup owned client jika initialization
+gagal. Jika close ikut gagal, `AggregateError.errors` mempertahankan kedua causes,
+dan `cause` menyimpan initialization error. Successful wrapper tetap hanya
+`{ state, saveCreds }` tanpa close handle. Untuk shutdown eksplisit, buka driver
+sendiri lalu gunakan raw factory + `makeAuthStateFromStore`; close driver setelah
+writes selesai. Raw SQLite/NekoDB memakai borrowed client dan tidak menutupnya
+otomatis. Cleanup bukan `clear()` atau `logout()`.
 
 ### Backend kustom
 

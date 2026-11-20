@@ -10,6 +10,7 @@ import { Boom } from '@hapi/boom'
 import type { AuthStore } from '../../Types'
 import { CREDS_KEY } from '../auth-store'
 import { BufferJSON } from '../generics'
+import { writeWithRecovery } from './record-recovery'
 
 /** Current backup envelope version. Bump only on a breaking layout change. */
 export const BACKUP_VERSION = 1
@@ -87,7 +88,7 @@ const parseEnvelope = (buffer: Buffer): AuthBackup => {
 		throw new Boom('Backup rusak: `data.creds` wajib berupa string.', { statusCode: 400 })
 	}
 
-	const keys: Record<string, string> = {}
+	const keys: Record<string, string> = Object.create(null)
 	for (const [key, value] of Object.entries(data.keys as Record<string, unknown>)) {
 		if (typeof value !== 'string') {
 			throw new Boom(`Backup rusak: record "${key}" bukan string JSON.`, { statusCode: 400 })
@@ -153,7 +154,7 @@ export const peekAuthBackup = (buffer: Buffer): AuthBackupInfo => {
 /**
  * Validates a backup and writes it into `store`, overwriting existing records.
  * Records present in the target but absent from the backup are left untouched —
- * call `store.clear()` first when you want a clean restore.
+ * Use a separate, inactive destination for a clean restore. Recovery is best-effort.
  */
 export const importAuthState = async (store: AuthStore, backupBuffer: Buffer): Promise<AuthBackupInfo> => {
 	const envelope = parseEnvelope(backupBuffer)
@@ -163,13 +164,20 @@ export const importAuthState = async (store: AuthStore, backupBuffer: Buffer): P
 		throw new Boom('Store tanpa `setMany` tidak bisa menerima restore.', { statusCode: 400 })
 	}
 
-	if (typeof creds === 'string' && creds.length > 0) {
-		await store.set(CREDS_KEY, creds)
-	}
-
-	await store.setMany(keys)
-
 	const restoredCreds = typeof creds === 'string' && creds.length > 0
+	if (restoredCreds && Object.prototype.hasOwnProperty.call(keys, CREDS_KEY) && keys[CREDS_KEY] !== creds) {
+		throw new Boom('Backup rusak: record credentials bertentangan.', { statusCode: 400 })
+	}
+	const records = { ...keys, ...(restoredCreds ? { [CREDS_KEY]: creds } : {}) }
+	await writeWithRecovery(
+		store,
+		records,
+		async () => {
+			if (restoredCreds) await store.set(CREDS_KEY, creds)
+			await store.setMany(keys)
+		},
+		{ label: 'Restore' }
+	)
 
 	return {
 		backend: envelope.backend,

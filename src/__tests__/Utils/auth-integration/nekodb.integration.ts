@@ -7,9 +7,8 @@
 
 import { BufferJSON } from '../../../Utils/generics'
 import { integrationSuite } from './suite'
-import { realAuthState, realStore } from './stores'
 
-await integrationSuite('auth state conformance', 'nekodb', _ready => {
+await integrationSuite('auth state conformance', 'nekodb', (_ready, { realAuthState, realStore }) => {
 	const unique = (name: string) => `it-${name}-${Date.now()}`
 	const open = (name: string) => realAuthState('nekodb', unique(name))
 	const store = (name: string) => realStore('nekodb', unique(name))
@@ -66,7 +65,7 @@ await integrationSuite('auth state conformance', 'nekodb', _ready => {
 		expect(info.hasCreds).toBe(true)
 		const restored = await target.get('pre-key-7.json')
 		expect(restored).not.toBeNull()
-		expect(Array.from(JSON.parse(restored!).public)).toEqual([7])
+		expect(Array.from(JSON.parse(restored!, BufferJSON.reviver).public)).toEqual([7])
 	})
 
 	it('backs up a persisted session and restores it after clearing the source', async () => {

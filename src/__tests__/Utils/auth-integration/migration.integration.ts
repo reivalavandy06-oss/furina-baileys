@@ -16,7 +16,7 @@ import { CREDS_KEY } from '../../../Utils/auth-store'
 import { migrateAuthState } from '../../../Utils/auth/migration-manager'
 import { CHECKS, type BackendCheck, type BackendName } from './availability'
 import { blockedMarker } from './suite'
-import { realStore } from './stores'
+import { createIntegrationStores } from './stores'
 import type { AuthStore } from '../../../Types'
 
 /** Narrows the availability union before any `.reason` access. */
@@ -58,6 +58,8 @@ describe.each(resolved)('migration $from → $to', ({ from, to, blocked }) => {
 		blockedMarker(`migration ${from} → ${to}: ${blocked}`)
 		return
 	}
+	const { realStore, disposeAll } = createIntegrationStores()
+	afterAll(disposeAll)
 
 	it('moves the whole session and leaves the source intact', async () => {
 		const source = await realStore(from, unique(`src-${from}-${to}`))
@@ -138,6 +140,8 @@ describe.each(resolved)('migration $from → $to', ({ from, to, blocked }) => {
 })
 
 describe('migration destination-batch failure investigation (real backends where available)', () => {
+	const { realStore, disposeAll } = createIntegrationStores()
+	afterAll(disposeAll)
 	// `it.each` throws on an empty table; when nothing is available the direction
 	// markers below are the only content of this suite.
 	if (available.length > 0) {
@@ -161,7 +165,7 @@ describe('migration destination-batch failure investigation (real backends where
 				}
 
 				const error = await migrateAuthState(src, failing).catch(e => e)
-				expect((error as Error).message).toContain('synthetic destination batch write failure')
+				expect(error).toMatchObject({ cause: { message: 'synthetic destination batch write failure' } })
 
 				// Record, do not assert away: whether a real backend leaves a partial
 				// session behind can only be observed against the backend itself, so

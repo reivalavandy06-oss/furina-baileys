@@ -3,7 +3,7 @@
 // Exercises the production SQLite adapter against the real `better-sqlite3`
 // driver. Two production surfaces are covered separately:
 //
-//   - `useSQLiteAuthState()` → `{ state, saveCreds, store? }`, for the auth path
+//   - raw store + `makeAuthStateFromStore()` → `{ state, saveCreds }`, for auth
 //   - `createSQLiteAuthStore()` → a raw `AuthStore`, for backup / migration
 //
 // Both build on a unique temporary database directory.
@@ -12,9 +12,8 @@ import { BufferJSON } from '../../../Utils/generics'
 import { CREDS_KEY } from '../../../Utils/auth-store'
 import { initAuthCreds } from '../../../Utils/auth-utils'
 import { integrationSuite } from './suite'
-import { realAuthState, realStore } from './stores'
 
-await integrationSuite('auth state conformance', 'sqlite', _ready => {
+await integrationSuite('auth state conformance', 'sqlite', (_ready, { realAuthState, realStore }) => {
 	const unique = (name: string) => `${name}-${Date.now()}`
 	const open = (name: string) => realAuthState('sqlite', unique(name))
 	const store = (name: string) => realStore('sqlite', unique(name))

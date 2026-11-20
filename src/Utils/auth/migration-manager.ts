@@ -12,13 +12,14 @@
 import { Boom } from '@hapi/boom'
 import type { AuthStore } from '../../Types'
 import { CREDS_KEY } from '../auth-store'
+import { validateRecordMap, writeWithRecovery } from './record-recovery'
 
 export interface MigrateAuthStateOptions {
 	/** Reports the migration phase: `read`, `write`, `verify`, `rollback`, `done`. */
 	onProgress?: (step: string) => void
 	/** Re-read every record from the target and compare with the source. Default true. */
 	verify?: boolean
-	/** Undo the writes when verification fails. Default true. */
+	/** Attempt to restore touched records after a write or verification failure. Default true. */
 	rollback?: boolean
 }
 
@@ -43,67 +44,17 @@ export const migrateAuthState = async (
 	onProgress?.('read')
 
 	const sourceKeys = await fromStore.keys()
-	const sourceEntries = Object.entries(await fromStore.getMany(sourceKeys)).filter(([, value]) => value !== undefined)
-	const record: Record<string, string> = {}
-	for (const [key, value] of sourceEntries) {
-		record[key] = value
-	}
+	const source = await fromStore.getMany(sourceKeys)
+	validateRecordMap(source, sourceKeys)
+	const record = Object.fromEntries(sourceKeys.map(key => [key, source[key] as string]))
 
 	const hasCreds = typeof record[CREDS_KEY] === 'string'
 
-	// Snapshot what the target already holds for the keys we are about to touch.
-	// `getMany` omits missing keys, so an absent entry means "the target has
-	// nothing here" and rollback should delete rather than restore.
-	const existing = await toStore.getMany((await toStore.keys()).filter(key => key in record))
-
-	onProgress?.('write')
-
-	await toStore.setMany(record)
-
-	if (!verify) {
-		onProgress?.('done')
-		return { backend: fromStore.backend, hasCreds, migrated: sourceEntries.length }
-	}
-
-	onProgress?.('verify')
-
-	const written = await toStore.getMany(sourceEntries.map(([key]) => key))
-	const mismatches = sourceEntries.filter(([key, value]) => written[key] !== value)
-
-	if (mismatches.length === 0) {
-		onProgress?.('done')
-		return { backend: fromStore.backend, hasCreds, migrated: sourceEntries.length }
-	}
-
-	const detail = mismatches
-		.slice(0, 5)
-		.map(([key]) => key)
-		.join(', ')
-
-	onProgress?.('rollback')
-
-	let rollbackError: unknown
-
-	if (rollback) {
-		try {
-			for (const [key] of sourceEntries) {
-				const original = existing[key]
-				if (original === undefined) {
-					await toStore.remove(key)
-				} else {
-					await toStore.set(key, original)
-				}
-			}
-		} catch (error) {
-			rollbackError = error
-		}
-	}
-
-	const outcome = rollback
-		? rollbackError
-			? ` Rollback gagal: ${String(rollbackError)}`
-			: ' Perubahan sudah dibatalkan.'
-		: ' Target mungkin berisi sebagian data.'
-
-	throw new Boom(`Migrasi gagal: ${mismatches.length} record tidak cocok (${detail}).${outcome}`, { statusCode: 500 })
+	await writeWithRecovery(toStore, record, () => toStore.setMany(record), {
+		label: 'Migrasi',
+		verify,
+		rollback,
+		onProgress
+	})
+	return { backend: fromStore.backend, hasCreds, migrated: sourceKeys.length }
 }
