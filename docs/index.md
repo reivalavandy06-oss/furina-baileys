@@ -29,6 +29,8 @@ Dokumentasi lengkap `@vanzzz/furina-baileys`. README di root repo berisi ringkas
 [API Reference](api-reference.md) | Daftar API publik |
 [Architecture Audit](architecture-audit.md) | Fitur reliabilitas yang sudah ada, gap, risiko, dan roadmap per file |
 [Storage Safety Audit — Fase 13.3](architecture/storage-safety-audit.md) | Audit identifier SQLite, konsistensi migrasi, disposal, isolasi harness, dan rencana Fase 13.4 |
+[Lifecycle & Crash-Recovery Audit — Fase 13.5](lifecycle-crash-recovery-audit.md) | Crash/retry migrasi, concurrent writes, hanging cleanup, ownership DB, Socket/PreKey, dan rencana Fase 13.6 |
+[Lifecycle & Persistence Remediation — Fase 13.6](lifecycle-persistence-remediation.md) | Missing vs read error, konflik rollback, ownership DB, disposal berlabel, timer PreKey, dan keputusan tanpa journal |
 [Test Integrasi Auth Store](testing/auth-store-integration.md) | Suite backend nyata (opt-in), isolasi namespace, dan status cakupan |
 [Troubleshooting](troubleshooting.md) | Masalah umum dan solusinya |
 [License](license.md) | Apache-2.0 dan kewajiban atribusi |
