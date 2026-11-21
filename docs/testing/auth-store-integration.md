@@ -63,9 +63,27 @@ sebelum penghapusan SQLite directory. Bila satu operation reject, sisanya tetap
 dicoba. Semua failures disimpan dalam `AggregateError.errors`; tidak di-log atau
 ditelan. Concurrent dan repeated disposeAll mengembalikan Promise yang sama,
 termasuk hasil rejection; resource tidak ditutup dua kali. Neko close dipanggil
-dengan receiver aslinya. Disposer yang hang masih dapat menahan cleanup; tidak
-ada klaim timeout membatalkan I/O. Caller tidak boleh membuat resource baru
-selama/setelah teardown.
+dengan receiver aslinya. Fase 13.6 menambahkan label dan status per resource:
+pending/running/succeeded/failed/timed-out/blocked. Default reporting deadline
+10 detik per operation (configurable di registry unit helper) tidak membatalkan
+I/O. Underlying completion Promise dan eventualStatus tetap tersedia lewat
+getResults()/getDisposalResults(); rejection terlambat tetap diamati. Aggregate
+error juga menyediakan results. Timeout bukan tanda resource telah ditutup.
+
+Independent cleanup tetap dicoba setelah timeout; dependent cleanup diblokir.
+SQLite directory removal mensyaratkan semua DB close sukses. Network close
+menunggu namespace cleanup settle, termasuk failure, tetapi diblokir bila
+cleanup timeout dan mungkin masih menggunakan client. Repeated disposal tidak
+meluncurkan ulang operasi yang tertahan/gagal. Dependency yang kelak settle tidak
+otomatis menjalankan blocked cleanup; operator harus memeriksa status dan mengambil
+keputusan manual. Tidak ada force-destroy driver yang tidak terverifikasi.
+
+Registration setelah teardown dimulai ditolak. Builder memeriksa admission
+sesudah await driver/check dan sebelum allocation; SQLite directory creation
+langsung didaftarkan, Redis close menunggu pending connect settle. Dengan demikian
+teardown saat import/setup tertahan tidak diam-diam melewatkan client yang baru
+dibuat. Constructor yang throw sebelum mengembalikan instance tetap tanggung
+jawab driver.
 
 ## Cakupan dan batas bukti
 

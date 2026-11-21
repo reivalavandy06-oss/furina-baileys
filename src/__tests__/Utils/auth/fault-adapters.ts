@@ -77,10 +77,15 @@ export const adapterHarness = (backend: Backend) => {
 			return createSQLiteAuthStore(
 				{
 					prepare(sql) {
-						const table = /(?:FROM|INTO)\s+"((?:[^"]|"")+)"/.exec(sql)?.[1]?.replace(/""/g, '"')
+						const table = /(?:FROM|INTO|UPDATE)\s+"((?:[^"]|"")+)"/.exec(sql)?.[1]?.replace(/""/g, '"')
 						if (!table) throw new Error('Unsupported synthetic SQL')
 						const stmt = sqliteDriver(table).prepare(sql)
-						const operation = sql.startsWith('INSERT') ? 'write' : sql.startsWith('DELETE') ? 'delete' : 'read'
+						const operation =
+							sql.startsWith('INSERT') || sql.startsWith('UPDATE')
+								? 'write'
+								: sql.startsWith('DELETE')
+									? 'delete'
+									: 'read'
 						return {
 							all: (...args) => faults.sync(operation, () => stmt.all(...args)),
 							run: (...args) => faults.sync(operation, () => stmt.run(...args))

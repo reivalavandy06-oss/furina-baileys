@@ -70,6 +70,8 @@ describe.each(['migration', 'restore'] as const)('%s compensating recovery', ope
 				await target.setMany(entries)
 				throw original
 			},
+			// Keep this regression on the legacy set/remove fault seams.
+			compareAndSet: undefined,
 			set: async (key, value) => {
 				if (key === 'key-0') throw first
 				await target.set(key, value)

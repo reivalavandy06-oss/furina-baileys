@@ -10,8 +10,9 @@ Simpan auth state di file, SQLite, MongoDB, Redis, atau NekoDB lewat satu kontra
 
 Secara default `useMultiFileAuthState` menyimpan state ke folder lokal. Untuk
 produksi, `src/Utils/auth-store.ts` menyediakan kontrak `AuthStore` dan beberapa
-backend yang mengembalikan **bentuk keluaran yang identik**:
-`{ state, saveCreds }`.
+backend yang tetap menyediakan field **`{ state, saveCreds }`**.
+Wrapper SQLite/MongoDB/Redis yang membuat koneksi internal juga menyediakan
+`close()` secara additive; wrapper borrowed NekoDB tetap memakai lifecycle caller.
 
 Semua backend jaringan/DB adalah **peer dependency opsional** dan dimuat lewat
 dynamic import — install biasa **tidak** menariknya masuk.
@@ -294,8 +295,8 @@ rollback disimpan terpisah tanpa menghentikan pemulihan key berikutnya.
 ### Error recovery, concurrency, dan ownership
 
 Error sesudah mutation berupa Boom 500: `error.cause` menyimpan original error;
-`error.data` memuat `phase`, `rollbackAttempted`, `rollbackErrors`, `progressErrors`,
-dan `destinationMayBePartial`. Semua causes tetap dapat diperiksa. Jangan log
+`error.data` memuat `phase`, `rollbackAttempted`, `rollbackErrors`, `rollbackConflicts`,
+`conditionalRecovery`, `progressErrors`, dan `destinationMayBePartial`. Semua causes tetap dapat diperiksa. Jangan log
 seluruh object mentah karena driver error mungkin memuat endpoint/data sensitif.
 Pesan utama tidak menyisipkan credentials atau nama record.
 
@@ -307,19 +308,66 @@ Caller perlu menyimpan hasil cutover di luar auth records dan mempertahankan
 source sampai selesai. Retry memakai source/backup stabil dan destination terpisah.
 
 Ini **bukan transaksi atomic**. Hentikan dan tunggu seluruh writer pada kedua
-storage, termasuk `saveCreds`, sebelum migrasi/restore. Concurrent writer dapat
-tertimpa rollback; crash atau backend gagal dapat menghentikan recovery. Common
-AuthStore tidak menyediakan lock, durable snapshot, atau transaksi lintas backend.
+storage, termasuk `saveCreds`, sebelum migrasi/restore. Recovery membaca current
+value dahulu: jika sudah sama dengan snapshot awal, key tidak ditulis; jika
+berbeda dari nilai migrasi, key dipertahankan dan conflict dilaporkan. SQLite
+menyediakan optional `compareAndSet(key, expected, replacement)` dengan conditional
+UPDATE/DELETE; null replacement menghapus hanya value yang masih cocok. Backend
+kustom boleh menyediakan capability atomic yang sama. Ini bukan version/fencing:
+ABA/same-value update dan perubahan sesudah verification tetap tidak terdeteksi.
+
+**Backend tanpa compareAndSet masih memakai read-before-restore yang non-atomic.**
+Writer lintas proses yang masuk setelah check masih dapat tertimpa. Jangan gunakan
+migration/restore online pada backend tersebut; akses eksklusif wajib. Mutex lokal
+hanya mengurutkan migration/restore yang memakai object destination yang sama,
+bukan raw writes atau dua wrappers physical store sama. `conditionalRecovery`
+menjelaskan apakah capability conditional tersedia pada store untuk recovery,
+bukan bukti setiap key diubah atau jaminan atomicity seluruh sesi.
+Crash atau backend gagal masih dapat menghentikan recovery. Common AuthStore tidak
+menyediakan distributed lock, durable snapshot, atau transaksi lintas backend.
 Snapshot RAM hanya mencakup nilai lama key yang disentuh, bukan seluruh database
 destination. Source, backup, dan readback tetap di memori; gzip tetap sinkron.
 
-Wrapper SQLite/MongoDB/Redis mencoba menutup owned client jika initialization
-gagal. Jika close ikut gagal, `AggregateError.errors` mempertahankan kedua causes,
-dan `cause` menyimpan initialization error. Successful wrapper tetap hanya
-`{ state, saveCreds }` tanpa close handle. Untuk shutdown eksplisit, buka driver
-sendiri lalu gunakan raw factory + `makeAuthStateFromStore`; close driver setelah
-writes selesai. Raw SQLite/NekoDB memakai borrowed client dan tidak menutupnya
-otomatis. Cleanup bukan `clear()` atau `logout()`.
+Wrapper SQLite/MongoDB/Redis kini mengembalikan `{ state, saveCreds, close }` secara
+additive. `close(): Promise<void>` menolak operasi baru melalui result tersebut,
+menunggu get/set/save yang sudah admitted, lalu menutup owned client tepat sekali.
+Repeated/concurrent close berbagi Promise yang sama, termasuk rejection. Jika
+operation pending atau close hang, Promise tetap pending: tidak ada cancellation
+atau klaim resource closed. `AggregateError.errors` mempertahankan pending-operation
+dan cleanup failures. Tidak ada auto-save terakhir, process handler, atau force-close.
+
+Initialization failure tetap mencoba close owned resource. Jika close ikut gagal,
+kedua causes tersedia dan `cause` menunjuk initialization error. `useNekoDBAuth`
+dan `makeAuthStateFromStore` tetap borrowed dan hanya mengembalikan state/saveCreds.
+Raw SQLite/NekoDB tidak menutup borrowed client. Raw Mongo memakai callback close
+eksplisit (memoized). Raw Redis mempertahankan legacy close→quit tetapi kini
+idempotent; gunakan `createRedisAuthStore(client, prefix, { ownership: 'borrowed' })`
+untuk shared client agar store.close tidak menutup client tersebut. Factory raw
+tidak otomatis drain pekerjaan aplikasi yang di luar managed result.
+
+```javascript
+const auth = await useSQLiteAuthState('./', { table: 'main.auth' })
+// Hentikan producer dan tunggu pekerjaan aplikasi sebelum shutdown:
+await auth.saveCreds()
+await auth.close()
+```
+
+Cleanup bukan `clear()` atau `logout()`. Socket end tidak otomatis menunggu
+saveCreds subscriber aplikasi atau menutup AuthStore; koordinasi tersebut tetap
+milik aplikasi.
+
+### Missing record dan error baca
+
+Raw file store mengembalikan null/omit hanya untuk ENOENT. Permission, IO,
+timeout, dan error storage lainnya diteruskan. useMultiFileAuthState juga tidak
+lagi menelan error baca/parse dan tidak membuat credentials pengganti bila file
+malformed. Empty string, JSON null/scalar/array bukan credentials valid. Parse
+error memakai pesan generik tanpa isi record; original cause tetap tersedia.
+Raw string records tetap tidak diubah formatnya, dan validasi tidak memaksa
+semua field Signal/credentials baru pada backup lama. Signal session reads dan
+validateSession kini meneruskan storage/deserialization errors, bukan menganggap
+session hilang. Caller wajib menangani rejection; jangan menghapus sesi atau
+memulai pairing sebagai respons otomatis terhadap read failure.
 
 ### Backend kustom
 

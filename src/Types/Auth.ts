@@ -135,6 +135,9 @@ export interface AuthStore {
 	/** Write many records at once. */
 	setMany(entries: Record<string, string>): Promise<void>
 
+	/** Optional atomic conditional recovery: null replacement deletes a matching record. */
+	compareAndSet?(key: string, expected: string, replacement: string | null): Promise<boolean>
+
 	/** Delete a single record. Returns `true` when something was removed. */
 	remove(key: string): Promise<boolean>
 

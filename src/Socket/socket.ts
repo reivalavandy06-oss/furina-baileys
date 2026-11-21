@@ -527,18 +527,22 @@ export const makeSocket = (config: SocketConfig) => {
 		}
 
 		// Add timeout protection
-		uploadPreKeysPromise = Promise.race([
-			uploadLogic(0),
-			new Promise<void>((_, reject) =>
-				setTimeout(() => reject(new Boom('Pre-key upload timeout', { statusCode: 408 })), UPLOAD_TIMEOUT)
-			)
+		let uploadTimer: NodeJS.Timeout
+		const work = uploadLogic(0)
+		const waiting = Promise.race([
+			work,
+			new Promise<void>((_, reject) => {
+				uploadTimer = setTimeout(() => reject(new Boom('Pre-key upload timeout', { statusCode: 408 })), UPLOAD_TIMEOUT)
+			})
 		])
-
-		try {
-			await uploadPreKeysPromise
-		} finally {
-			uploadPreKeysPromise = null
+		uploadPreKeysPromise = waiting
+		const settled = () => {
+			clearTimeout(uploadTimer)
+			if (uploadPreKeysPromise === waiting) uploadPreKeysPromise = null
 		}
+		// A caller deadline does not cancel storage/query work. Retain the guard until that work settles.
+		void work.then(settled, settled)
+		await waiting
 	}
 
 	const verifyCurrentPreKeyExists = async () => {

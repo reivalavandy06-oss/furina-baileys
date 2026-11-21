@@ -156,6 +156,11 @@ gagal. Ini bukan transaksi atomic; hentikan writer dan jangan aktifkan destinati
 yang reject. SQLite mendukung nama literal ber-quote dan `schema.table` secara
 konsisten. Lihat [kontrak recovery dan ownership](docs/auth-stores.md).
 
+Wrapper DB milik library juga menyediakan `await auth.close()` yang idempotent
+dan menunggu operasi yang sudah admitted. Read failure diteruskan sebagai error,
+bukan dianggap session hilang. Recovery memeriksa konflik dan SQLite mendukung
+conditional rollback; backend tanpa capability atomic tetap wajib offline/exclusive.
+
 ## 🔄 Migrasi dari `furina-baileys`
 
 Paket ini menggantikan paket unscoped `furina-baileys`.

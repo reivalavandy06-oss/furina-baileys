@@ -6,8 +6,7 @@
 // dynamic import so a normal install never pulls them in.
 //
 // Every backend speaks the same `AuthStore` record contract, so
-// `useXAuthState()` returns the identical `{ state, saveCreds }` shape no matter
-// which storage is used.
+// Every helper retains `{ state, saveCreds }`; internally owned DB wrappers also expose `close()`.
 
 import { mkdir, readFile, readdir, stat, unlink, writeFile } from 'fs/promises'
 import { join } from 'path'
@@ -16,9 +15,16 @@ import type { AuthStateOptions, AuthStore, AuthenticationCreds, AuthenticationSt
 import { initAuthCreds } from './auth-utils'
 import { BufferJSON } from './generics'
 import { quoteSQLiteIdentifier } from './auth/sqlite-identifier'
-import { closeAfterFailedInitialization } from './auth/owned-resource'
+import {
+	closeAfterFailedInitialization,
+	closeOnce,
+	manageAuthenticationState,
+	type ManagedAuthenticationState
+} from './auth/owned-resource'
+import { assertCredentialsObject, missingFileOnly, parseAuthRecord, storedString } from './auth/read-validation'
 
 export type { AuthStore, AuthStateOptions }
+export type { ManagedAuthenticationState }
 
 /** Record key holding AuthenticationCreds. Shared so backup/migration tooling
  * can identify the creds record without re-deriving the naming scheme. */
@@ -27,7 +33,7 @@ export const CREDS_KEY = 'creds.json'
 const recordKey = (type: string, id: string) => `${type}-${id}.json`
 
 const decodeRecord = <T>(raw: string, type: string): T => {
-	const value = JSON.parse(raw, BufferJSON.reviver)
+	const value = parseAuthRecord(raw)
 	if (type === 'app-state-sync-key' && value) {
 		return proto.Message.AppStateSyncKeyData.fromObject(value) as unknown as T
 	}
@@ -73,9 +79,9 @@ export const makeAuthStateFromStore = async (
 	if (rawCreds !== null && typeof rawCreds !== 'string') {
 		throw new Error('Stored authentication credentials are malformed')
 	}
-	const creds: AuthenticationCreds = rawCreds
-		? (JSON.parse(rawCreds, BufferJSON.reviver) as AuthenticationCreds)
-		: initAuthCreds()
+	const parsed = rawCreds === null ? initAuthCreds() : parseAuthRecord(rawCreds)
+	assertCredentialsObject(parsed)
+	const creds = parsed as AuthenticationCreds
 
 	return {
 		state: {
@@ -91,7 +97,7 @@ export const makeAuthStateFromStore = async (
 
 					for (const id of ids) {
 						const raw = found[recordKey(String(type), id)]
-						data[id] = raw ? decodeRecord<SignalDataTypeMap[T]>(raw, String(type)) : (null as never)
+						data[id] = raw !== undefined ? decodeRecord<SignalDataTypeMap[T]>(raw, String(type)) : (null as never)
 					}
 
 					return data
@@ -122,7 +128,7 @@ export const makeAuthStateFromStore = async (
 const safeFileName = (name: string) => name.replace(/\//g, '__').replace(/:/g, '-')
 
 export const createFileAuthStore = async (folder: string): Promise<AuthStore> => {
-	const info = await stat(folder).catch(() => undefined)
+	const info = await stat(folder).catch(missingFileOnly)
 	if (info && !info.isDirectory()) {
 		throw new Error(`found something that is not a directory at ${folder}`)
 	}
@@ -135,14 +141,14 @@ export const createFileAuthStore = async (folder: string): Promise<AuthStore> =>
 		get: async key => {
 			try {
 				return await readFile(path(key), { encoding: 'utf-8' })
-			} catch {
-				return null
+			} catch (error) {
+				return missingFileOnly(error)
 			}
 		},
 		getMany: async keys => {
 			const out: Record<string, string> = {}
 			for (const key of keys) {
-				const value = await readFile(path(key), 'utf-8').catch(() => null)
+				const value = await readFile(path(key), 'utf-8').catch(missingFileOnly)
 				if (value !== null) out[key] = value
 			}
 			return out
@@ -184,11 +190,20 @@ export const createSQLiteAuthStore = (db: SqliteDb, table = 'furina_auth'): Auth
 		const rows = db.prepare('SELECT value FROM ' + identifier + ' WHERE key = ?').all(key) as {
 			value: string
 		}[]
-		return rows[0]?.value ?? null
+		return rows.length ? storedString(rows[0]?.value) : null
 	}
 
 	return {
 		backend: 'sqlite',
+		compareAndSet: async (key, expected, replacement) => {
+			const result =
+				replacement === null
+					? db.prepare('DELETE FROM ' + identifier + ' WHERE key = ? AND value = ?').run(key, expected)
+					: db
+							.prepare('UPDATE ' + identifier + ' SET value = ? WHERE key = ? AND value = ?')
+							.run(replacement, key, expected)
+			return (result as { changes?: number } | undefined)?.changes === 1
+		},
 		get: read,
 		getMany: async keys => {
 			const out: Record<string, string> = {}
@@ -220,7 +235,7 @@ export const createSQLiteAuthStore = (db: SqliteDb, table = 'furina_auth'): Auth
 export const useSQLiteAuthState = async (
 	folder: string,
 	options: AuthStateOptions = {}
-): ReturnType<typeof makeAuthStateFromStore> => {
+): Promise<ManagedAuthenticationState> => {
 	const table = options.table ?? 'furina_auth'
 	const identifier = quoteSQLiteIdentifier(table)
 	const mod = await lazyLoad('better-sqlite3')
@@ -228,13 +243,11 @@ export const useSQLiteAuthState = async (
 	const path = options.path ?? join(folder, 'auth.db')
 
 	const db = new Database(path)
-	return closeAfterFailedInitialization(
-		async () => {
-			db.prepare('CREATE TABLE IF NOT EXISTS ' + identifier + ' (key TEXT PRIMARY KEY, value TEXT)').run()
-			return makeAuthStateFromStore(createSQLiteAuthStore(db, table))
-		},
-		() => db.close?.()
-	)
+	const close = closeOnce(() => db.close?.())
+	return closeAfterFailedInitialization(async () => {
+		db.prepare('CREATE TABLE IF NOT EXISTS ' + identifier + ' (key TEXT PRIMARY KEY, value TEXT)').run()
+		return manageAuthenticationState(await makeAuthStateFromStore(createSQLiteAuthStore(db, table)), close)
+	}, close)
 }
 
 /**
@@ -243,11 +256,14 @@ export const useSQLiteAuthState = async (
  */
 export const createMongoAuthStore = (collection: MongoCollectionLike, close?: () => Promise<void>): AuthStore => ({
 	backend: 'mongodb',
-	get: async key => (await collection.findOne({ key }))?.value ?? null,
+	get: async key => {
+		const record = await collection.findOne({ key })
+		return record === null ? null : storedString(record.value)
+	},
 	getMany: async keys => {
 		const out: Record<string, string> = {}
 		const rows = await collection.find({ key: { $in: keys } }).toArray()
-		for (const row of rows) out[row.key] = row.value
+		for (const row of rows) out[row.key] = storedString(row.value)
 		return out
 	},
 	set: async (key, value) => {
@@ -266,32 +282,32 @@ export const createMongoAuthStore = (collection: MongoCollectionLike, close?: ()
 	clear: async () => {
 		await collection.deleteMany({})
 	},
-	close: close ? () => close() : undefined
+	close: close ? closeOnce(close) : undefined
 })
 
-export const useMongoDBAuthState = async (
-	options: AuthStateOptions = {}
-): ReturnType<typeof makeAuthStateFromStore> => {
+export const useMongoDBAuthState = async (options: AuthStateOptions = {}): Promise<ManagedAuthenticationState> => {
 	const mod = await lazyLoad('mongodb')
 	const MongoClient = mod['MongoClient'] as new (url: string) => MongoClientLike
 	const client = new MongoClient(options.url ?? 'mongodb://127.0.0.1:27017')
-	return closeAfterFailedInitialization(
-		async () => {
-			await client.connect()
-			const database = options.database ?? 'furina'
-			const collectionName = options.table ?? 'auth'
-			const collection = client.db(database).collection(collectionName) as MongoCollectionLike
-			return makeAuthStateFromStore(createMongoAuthStore(collection, async () => client.close()))
-		},
-		() => client.close()
-	)
+	const close = closeOnce(() => client.close())
+	return closeAfterFailedInitialization(async () => {
+		await client.connect()
+		const database = options.database ?? 'furina'
+		const collectionName = options.table ?? 'auth'
+		const collection = client.db(database).collection(collectionName) as MongoCollectionLike
+		return manageAuthenticationState(await makeAuthStateFromStore(createMongoAuthStore(collection)), close)
+	}, close)
 }
 
 /**
  * Builds an `AuthStore` over an already-connected Redis client. `prefix` isolates
  * one session inside a shared database.
  */
-export const createRedisAuthStore = (client: RedisClientLike, prefix = 'furina:auth:'): AuthStore => ({
+export const createRedisAuthStore = (
+	client: RedisClientLike,
+	prefix = 'furina:auth:',
+	options: { ownership?: 'owned' | 'borrowed' } = {}
+): AuthStore => ({
 	backend: 'redis',
 	get: async key => await client.get(prefix + key),
 	getMany: async keys => {
@@ -319,25 +335,26 @@ export const createRedisAuthStore = (client: RedisClientLike, prefix = 'furina:a
 	clear: async () => {
 		await client.del(await client.keys(`${prefix}*`))
 	},
-	close: async () => {
-		await client.quit()
-	}
+	close: closeOnce(async () => {
+		if (options.ownership !== 'borrowed') await client.quit()
+	})
 })
 
-export const useRedisAuthState = async (options: AuthStateOptions = {}): ReturnType<typeof makeAuthStateFromStore> => {
+export const useRedisAuthState = async (options: AuthStateOptions = {}): Promise<ManagedAuthenticationState> => {
 	const mod = await lazyLoad('redis')
 	const createClient = mod['createClient'] as (opts?: { url?: string }) => RedisClientLike
 	const prefix = `${options.table ?? 'furina:auth'}:`
 	const client = createClient({ url: options.url })
-	return closeAfterFailedInitialization(
-		async () => {
-			await client.connect()
-			return makeAuthStateFromStore(createRedisAuthStore(client, prefix))
-		},
-		async () => {
-			if (client.isOpen !== false) await client.quit()
-		}
-	)
+	const close = closeOnce(async () => {
+		if (client.isOpen !== false) await client.quit()
+	})
+	return closeAfterFailedInitialization(async () => {
+		await client.connect()
+		return manageAuthenticationState(
+			await makeAuthStateFromStore(createRedisAuthStore(client, prefix, { ownership: 'borrowed' })),
+			close
+		)
+	}, close)
 }
 
 // ── structural types for the optional clients (no runtime dependency) ────

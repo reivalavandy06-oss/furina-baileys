@@ -23,6 +23,17 @@ export const makeFakeSqlite = () => {
 	): FakeStatement => ({ all, run })
 
 	const prepare = (sql: string): FakeStatement => {
+		if (sql.startsWith('UPDATE ')) {
+			return statement(
+				() => [],
+				(...params) => {
+					const [replacement, key, expected] = params.map(String)
+					if (rows.get(key!) !== expected) return { changes: 0 }
+					rows.set(key!, replacement!)
+					return { changes: 1 }
+				}
+			)
+		}
 		if (sql.includes('SELECT value FROM')) {
 			return statement(
 				(...params: unknown[]) => {
@@ -49,8 +60,10 @@ export const makeFakeSqlite = () => {
 			return statement(
 				() => [],
 				(...params: unknown[]) => {
-					if (scoped) rows.delete(String(params[0]))
-					else rows.clear()
+					if (scoped) {
+						if (sql.includes('AND value = ?') && rows.get(String(params[0])) !== params[1]) return { changes: 0 }
+						return { changes: rows.delete(String(params[0])) ? 1 : 0 }
+					} else rows.clear()
 				}
 			)
 		}
@@ -207,6 +220,8 @@ export const withFailingGetMany = (inner: AuthStore, failFrom: number): AuthStor
 
 	return {
 		...inner,
+		// Exercise the common-interface recovery path; native conditional recovery has its own tests.
+		compareAndSet: undefined,
 		getMany: async keys => {
 			calls += 1
 			const real = await inner.getMany(keys)

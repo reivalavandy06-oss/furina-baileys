@@ -5,6 +5,7 @@ import { proto } from '../../WAProto/index.js'
 import type { AuthenticationCreds, AuthenticationState, SignalDataTypeMap } from '../Types'
 import { initAuthCreds } from './auth-utils'
 import { BufferJSON } from './generics'
+import { assertCredentialsObject, missingFileOnly, parseAuthRecord } from './auth/read-validation'
 
 // We need to lock files due to the fact that we are using async functions to read and write files
 // https://github.com/WhiskeySockets/Baileys/issues/794
@@ -55,13 +56,14 @@ export const useMultiFileAuthState = async (
 			return await mutex.acquire().then(async release => {
 				try {
 					const data = await readFile(filePath, { encoding: 'utf-8' })
-					return JSON.parse(data, BufferJSON.reviver)
+					return parseAuthRecord(data)
 				} finally {
 					release()
 				}
 			})
 		} catch (error) {
-			return null
+			missingFileOnly(error)
+			return undefined
 		}
 	}
 
@@ -81,7 +83,7 @@ export const useMultiFileAuthState = async (
 		} catch {}
 	}
 
-	const folderInfo = await stat(folder).catch(() => {})
+	const folderInfo = await stat(folder).catch(missingFileOnly)
 	if (folderInfo) {
 		if (!folderInfo.isDirectory()) {
 			throw new Error(
@@ -94,7 +96,10 @@ export const useMultiFileAuthState = async (
 
 	const fixFileName = (file?: string) => file?.replace(/\//g, '__')?.replace(/:/g, '-')
 
-	const creds: AuthenticationCreds = (await readData('creds.json')) || initAuthCreds()
+	const loaded = await readData('creds.json')
+	const parsed = loaded === undefined ? initAuthCreds() : loaded
+	assertCredentialsObject(parsed)
+	const creds = parsed as AuthenticationCreds
 
 	return {
 		state: {
@@ -109,7 +114,7 @@ export const useMultiFileAuthState = async (
 								value = proto.Message.AppStateSyncKeyData.fromObject(value)
 							}
 
-							data[id] = value
+							data[id] = (value ?? null) as SignalDataTypeMap[typeof type]
 						})
 					)
 

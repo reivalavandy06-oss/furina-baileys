@@ -1,6 +1,8 @@
 import { Boom } from '@hapi/boom'
 import type { AuthStore } from '../../Types'
+import { Mutex } from 'async-mutex'
 const owns = (records: Record<string, string>, key: string) => Object.prototype.hasOwnProperty.call(records, key)
+const recoveryLocks = new WeakMap<AuthStore, Mutex>()
 
 // Record strings are opaque for compatibility with existing backups/custom stores.
 export const validateRecordMap = (records: Record<string, string>, keys = Object.keys(records)): void => {
@@ -12,7 +14,7 @@ export const validateRecordMap = (records: Record<string, string>, keys = Object
 }
 
 /** Only snapshots touched keys. Requires exclusive access; this is not a transaction. */
-export const writeWithRecovery = async (
+const executeWithRecovery = async (
 	store: AuthStore,
 	records: Record<string, string>,
 	write: () => Promise<void>,
@@ -39,6 +41,7 @@ export const writeWithRecovery = async (
 		onProgress?.('done')
 	} catch (cause) {
 		const rollbackErrors: unknown[] = []
+		const rollbackConflicts: string[] = []
 		const progressErrors: unknown[] = []
 		if (rollback) {
 			try {
@@ -49,8 +52,22 @@ export const writeWithRecovery = async (
 			for (const key of keys) {
 				try {
 					const original = owns(previous, key) ? previous[key] : undefined
-					if (original === undefined) await store.remove(key)
-					else await store.set(key, original)
+					const current = await store.get(key)
+					if (current === (original ?? null)) continue
+					if (current !== records[key]) {
+						rollbackConflicts.push(key)
+						throw new Error('Auth rollback conflict; current value preserved')
+					}
+					if (store.compareAndSet) {
+						if (!(await store.compareAndSet(key, current, original ?? null))) {
+							rollbackConflicts.push(key)
+							throw new Error('Auth conditional rollback conflict; current value preserved')
+						}
+					} else {
+						// This fallback requires exclusive access. The check above is NOT atomic CAS.
+						if (original === undefined) await store.remove(key)
+						else await store.set(key, original)
+					}
 					if ((await store.get(key)) !== (original ?? null)) {
 						throw new Error('Auth rollback verification mismatch')
 					}
@@ -65,10 +82,29 @@ export const writeWithRecovery = async (
 			: ' Perubahan sudah dibatalkan.'
 		const error = new Boom(`${label} gagal pada tahap ${phase}.${outcome}`, {
 			statusCode: 500,
-			data: { phase, rollbackAttempted: rollback, rollbackErrors, progressErrors, destinationMayBePartial }
+			data: {
+				phase,
+				rollbackAttempted: rollback,
+				rollbackErrors,
+				rollbackConflicts,
+				progressErrors,
+				destinationMayBePartial,
+				conditionalRecovery: !!store.compareAndSet
+			}
 		})
 		// Non-enumerable cause preserves identity without putting driver payloads in HTTP output.
 		Object.defineProperty(error, 'cause', { value: cause, configurable: true })
 		throw error
 	}
+}
+
+// Coordinates migration/restore for this object only, never a distributed/session lock.
+export const writeWithRecovery = (...args: Parameters<typeof executeWithRecovery>): Promise<void> => {
+	const store = args[0]
+	let lock = recoveryLocks.get(store)
+	if (!lock) {
+		lock = new Mutex()
+		recoveryLocks.set(store, lock)
+	}
+	return lock.runExclusive(() => executeWithRecovery(...args))
 }

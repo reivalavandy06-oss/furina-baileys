@@ -220,22 +220,18 @@ export function makeLibSignalRepository(
 		lidMapping,
 
 		async validateSession(jid: string) {
-			try {
-				const addr = jidToSignalProtocolAddress(jid)
-				const session = await storage.loadSession(addr.toString())
+			const addr = jidToSignalProtocolAddress(jid)
+			const session = await storage.loadSession(addr.toString())
 
-				if (!session) {
-					return { exists: false, reason: 'no session' }
-				}
-
-				if (!session.haveOpenSession()) {
-					return { exists: false, reason: 'no open session' }
-				}
-
-				return { exists: true }
-			} catch (error) {
-				return { exists: false, reason: 'validation error' }
+			if (!session) {
+				return { exists: false, reason: 'no session' }
 			}
+
+			if (!session.haveOpenSession()) {
+				return { exists: false, reason: 'no open session' }
+			}
+
+			return { exists: true }
 		},
 
 		async deleteSession(jids: string[]) {
@@ -462,15 +458,11 @@ function signalStorage(
 
 	return {
 		loadSession: async (id: string) => {
-			try {
-				const wireJid = await resolveLIDSignalAddress(id)
-				const { [wireJid]: sess } = await keys.get('session', [wireJid])
+			const wireJid = await resolveLIDSignalAddress(id)
+			const { [wireJid]: sess } = await keys.get('session', [wireJid])
 
-				if (sess) {
-					return libsignal.SessionRecord.deserialize(sess)
-				}
-			} catch (e) {
-				return null
+			if (sess) {
+				return libsignal.SessionRecord.deserialize(sess)
 			}
 
 			return null
