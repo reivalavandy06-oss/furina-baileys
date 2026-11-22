@@ -1,10 +1,45 @@
 /// <reference lib="es2021.promise" />
 import type { AuthenticationState, SignalKeyStore } from '../../Types'
 
-export interface ManagedAuthenticationState {
+export interface AuthenticationStateResult {
 	state: AuthenticationState
 	saveCreds: () => Promise<void>
+}
+
+export interface ManagedAuthenticationState extends AuthenticationStateResult {
 	close: () => Promise<void>
+}
+
+/** Associates the legacy wrapper object with its internal lifecycle without
+ * adding enumerable fields that existing consumers compare by key. */
+const closeHandles = new WeakMap<AuthenticationStateResult, () => Promise<void>>()
+
+/**
+ * Closes an internally owned resource associated with a wrapper returned by
+ * `useSQLiteAuthState`, `useRedisAuthState`, or `useMongoDBAuthState`.
+ * Borrowed wrappers have no owned resource and are rejected.
+ */
+export const closeAuthState = (auth: AuthenticationStateResult): Promise<void> => {
+	const close = closeHandles.get(auth)
+	if (!close) {
+		return Promise.reject(new Error('Authentication state does not own a closable resource'))
+	}
+
+	return close()
+}
+
+/** Preserves the historical `{ state, saveCreds }` runtime shape and return
+ * type while keeping the managed lifecycle reachable through `closeAuthState`. */
+export const exposeLegacyAuthenticationState = (
+	managed: ManagedAuthenticationState
+): AuthenticationStateResult => {
+	const legacy: AuthenticationStateResult = {
+		state: managed.state,
+		saveCreds: managed.saveCreds
+	}
+	closeHandles.set(legacy, managed.close)
+
+	return legacy
 }
 
 export const closeOnce = (close: () => void | Promise<void>): (() => Promise<void>) => {

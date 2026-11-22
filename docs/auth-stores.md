@@ -10,12 +10,15 @@ Simpan auth state di file, SQLite, MongoDB, Redis, atau NekoDB lewat satu kontra
 
 Secara default `useMultiFileAuthState` menyimpan state ke folder lokal. Untuk
 produksi, `src/Utils/auth-store.ts` menyediakan kontrak `AuthStore` dan beberapa
-backend yang tetap menyediakan field **`{ state, saveCreds }`**.
-Wrapper SQLite/MongoDB/Redis yang membuat koneksi internal juga menyediakan
-`close()` secara additive; wrapper borrowed NekoDB tetap memakai lifecycle caller.
+backend yang tetap mengembalikan field **`{ state, saveCreds }`** dengan bentuk
+runtime yang sama seperti versi lama.
 
-Semua backend jaringan/DB adalah **peer dependency opsional** dan dimuat lewat
-dynamic import — install biasa **tidak** menariknya masuk.
+`@nekodb/client` adalah **optional peer dependency**. `better-sqlite3`, `mongodb`,
+dan `redis` dimuat lewat dynamic import tetapi **tidak** dideklarasikan sebagai
+`peerDependencies`; install manual hanya jika backend tersebut dipakai. Install
+biasa tidak menarik driver DB tersebut. `jimp`, `audio-decode`, `link-preview-js`,
+`saweria`, dan `trakteerjs` adalah optional peers; `sharp` tetap peer metadata
+baseline.
 
 ### Kontrak `AuthStore`
 
@@ -28,6 +31,7 @@ interface AuthStore {
 	setMany(entries: Record<string, string>): Promise<void>
 	remove(key: string): Promise<boolean>
 	keys(): Promise<string[]>
+	compareAndSet?(key: string, expected: string, replacement: string | null): Promise<boolean>
 	clear?(): Promise<void>
 	close?(): Promise<void>
 }
@@ -45,7 +49,7 @@ secara eksplisit lewat kontrak `AuthStore`.
 
 ### SQLite
 
-Install peer dependency:
+Install driver secara manual (tidak dideklarasikan sebagai peer):
 
 ```bash
 npm install better-sqlite3
@@ -74,6 +78,8 @@ caller pada factory raw.
 
 ### MongoDB
 
+Install driver secara manual (tidak dideklarasikan sebagai peer):
+
 ```bash
 npm install mongodb
 ```
@@ -89,6 +95,8 @@ const { state, saveCreds } = await useMongoDBAuthState({
 ```
 
 ### Redis
+
+Install driver secara manual (tidak dideklarasikan sebagai peer):
 
 ```bash
 npm install redis
@@ -151,13 +159,17 @@ dipakai untuk lebih dari satu bot, beri nama berbeda per bot.
 
 #### Tutup koneksi saat bot mati
 
-`useNekoDBAuth` **tidak pernah** memanggil `db.close()` — Anda pemilik koneksinya:
+`useNekoDBAuth` **tidak pernah** memanggil `db.close()` — Anda pemilik koneksinya.
+Tunggu cleanup selesai sebelum keluar; timeout di library bukan cancellation:
 
 ```javascript
-process.on('SIGINT', () => {
-  sock.end()
-  db.close()
-  process.exit(0)
+process.once('SIGINT', async () => {
+  try {
+    await sock.end()
+    await db.close()
+  } finally {
+    process.exit(0)
+  }
 })
 ```
 
@@ -312,9 +324,13 @@ storage, termasuk `saveCreds`, sebelum migrasi/restore. Recovery membaca current
 value dahulu: jika sudah sama dengan snapshot awal, key tidak ditulis; jika
 berbeda dari nilai migrasi, key dipertahankan dan conflict dilaporkan. SQLite
 menyediakan optional `compareAndSet(key, expected, replacement)` dengan conditional
-UPDATE/DELETE; null replacement menghapus hanya value yang masih cocok. Backend
-kustom boleh menyediakan capability atomic yang sama. Ini bukan version/fencing:
-ABA/same-value update dan perubahan sesudah verification tetap tidak terdeteksi.
+UPDATE/DELETE; null replacement menghapus hanya value yang masih cocok. Capability
+ini hanya diekspos jika driver dapat melaporkan jumlah row yang terpengaruh lewat
+`run().changes` atau `SELECT changes()`. Driver structural yang hanya mengembalikan
+`void` tanpa `changes()` tidak diberi `compareAndSet`, sehingga recovery memakai
+fallback non-atomic. Backend kustom boleh menyediakan capability atomic yang sama.
+Ini bukan version/fencing: ABA/same-value update dan perubahan sesudah verification
+tetap tidak terdeteksi.
 
 **Backend tanpa compareAndSet masih memakai read-before-restore yang non-atomic.**
 Writer lintas proses yang masuk setelah check masih dapat tertimpa. Jangan gunakan
@@ -328,28 +344,38 @@ menyediakan distributed lock, durable snapshot, atau transaksi lintas backend.
 Snapshot RAM hanya mencakup nilai lama key yang disentuh, bukan seluruh database
 destination. Source, backup, dan readback tetap di memori; gzip tetap sinkron.
 
-Wrapper SQLite/MongoDB/Redis kini mengembalikan `{ state, saveCreds, close }` secara
-additive. `close(): Promise<void>` menolak operasi baru melalui result tersebut,
-menunggu get/set/save yang sudah admitted, lalu menutup owned client tepat sekali.
-Repeated/concurrent close berbagi Promise yang sama, termasuk rejection. Jika
-operation pending atau close hang, Promise tetap pending: tidak ada cancellation
-atau klaim resource closed. `AggregateError.errors` mempertahankan pending-operation
-dan cleanup failures. Tidak ada auto-save terakhir, process handler, atau force-close.
+Wrapper SQLite/MongoDB/Redis tetap mengembalikan **`{ state, saveCreds }`**.
+Lifecycle resource yang dimiliki library diakses lewat helper additive
+`closeAuthState(auth)`, bukan field enumerable baru. Helper menolak operasi baru
+melalui wrapper tersebut, menunggu get/set/save yang sudah admitted, lalu menutup
+owned client tepat sekali. Repeated/concurrent close berbagi Promise yang sama,
+termasuk rejection. Jika operation pending atau close hang, Promise tetap pending:
+tidak ada cancellation atau klaim resource closed. `AggregateError.errors`
+mempertahankan pending-operation dan cleanup failures. Tidak ada auto-save
+terakhir, process handler, atau force-close.
 
 Initialization failure tetap mencoba close owned resource. Jika close ikut gagal,
 kedua causes tersedia dan `cause` menunjuk initialization error. `useNekoDBAuth`
-dan `makeAuthStateFromStore` tetap borrowed dan hanya mengembalikan state/saveCreds.
-Raw SQLite/NekoDB tidak menutup borrowed client. Raw Mongo memakai callback close
-eksplisit (memoized). Raw Redis mempertahankan legacy close→quit tetapi kini
-idempotent; gunakan `createRedisAuthStore(client, prefix, { ownership: 'borrowed' })`
-untuk shared client agar store.close tidak menutup client tersebut. Factory raw
-tidak otomatis drain pekerjaan aplikasi yang di luar managed result.
+dan `makeAuthStateFromStore` tetap borrowed dan hanya mengembalikan state/saveCreds;
+`closeAuthState` menolak wrapper borrowed. Raw SQLite/NekoDB tidak menutup borrowed
+client. Raw Mongo memakai callback close eksplisit (memoized). Raw Redis
+mempertahankan legacy close→quit tetapi kini idempotent; gunakan
+`createRedisAuthStore(client, prefix, { ownership: 'borrowed' })` untuk shared
+client agar store.close tidak menutup client tersebut. Factory raw tidak otomatis
+drain pekerjaan aplikasi yang di luar managed result.
 
 ```javascript
+const { closeAuthState } = require('@vanzzz/furina-baileys')
+
 const auth = await useSQLiteAuthState('./', { table: 'main.auth' })
+const { state, saveCreds } = auth
+
 // Hentikan producer dan tunggu pekerjaan aplikasi sebelum shutdown:
-await auth.saveCreds()
-await auth.close()
+try {
+  await saveCreds()
+} finally {
+  await closeAuthState(auth)
+}
 ```
 
 Cleanup bukan `clear()` atau `logout()`. Socket end tidak otomatis menunggu
@@ -379,11 +405,20 @@ const { makeAuthStateFromStore } = require('@vanzzz/furina-baileys')
 const store = {
   backend: 'custom',
   get: async key => (await myDb.query(key)) ?? null,
-  getMany: async keys => ({ ... }),
+  getMany: async keys => {
+    const entries = await Promise.all(
+      keys.map(async key => [key, await myDb.query(key)])
+    )
+    return Object.fromEntries(entries.filter(([, value]) => value != null))
+  },
   set: async (key, value) => { await myDb.write(key, value) },
-  setMany: async entries => { /* ... */ },
-  remove: async key => true,
-  keys: async () => []
+  setMany: async entries => {
+    for (const [key, value] of Object.entries(entries)) {
+      await myDb.write(key, value)
+    }
+  },
+  remove: async key => await myDb.delete(key),
+  keys: async () => await myDb.listKeys()
 }
 
 const { state, saveCreds } = await makeAuthStateFromStore(store)
@@ -392,12 +427,16 @@ const { state, saveCreds } = await makeAuthStateFromStore(store)
 ### Pakai dengan `makeWASocket`
 
 ```javascript
-const { makeWASocket, useSQLiteAuthState } = require('@vanzzz/furina-baileys')
+const { makeWASocket, useSQLiteAuthState, closeAuthState } = require('@vanzzz/furina-baileys')
 
-const { state, saveCreds } = await useSQLiteAuthState('./')
+const auth = await useSQLiteAuthState('./')
+const { state, saveCreds } = auth
 
 const sock = makeWASocket({ auth: state })
 sock.ev.on('creds.update', saveCreds)
+
+// Saat shutdown, setelah producer berhenti dan persistence aplikasi selesai:
+await closeAuthState(auth)
 ```
 
 ---

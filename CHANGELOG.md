@@ -1,5 +1,26 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+- SQLite `compareAndSet` now reliably detects conditional mutation results, including structural drivers that return void from `run()`, by reading `changes` from the result or `SELECT changes()` on the same connection.
+- Restored the historical `{ state, saveCreds }` runtime shape and default return type for owned SQLite/Mongo/Redis Auth State wrappers; close is available through the additive `closeAuthState(auth)` helper instead of a new wrapper field.
+- Corrected documentation for Auth State examples, optional database drivers, SQLite CAS capability detection, and NekoDB connection shutdown.
+
+### Added
+- Public `closeAuthState` helper for closing Auth State wrappers whose connection is owned by the library.
+- `docs/upgrade-notes.md` for differences between the development branch and the last npm package.
+- SQLite CAS regression tests for supported, structural, unsupported, delete, and driver-throw paths.
+
+### Changed
+- Node.js engine range is now `^20.19.0 || >=22.12.0`.
+- NekoDB internal test-seam exports are removed from the root package barrel while remaining available to internal unit tests.
+- `URLGenerationOptions.fetchOpts.headers` now uses a structural, Node-safe header type instead of the DOM-only `HeadersInit` alias; existing `Headers`, `HeadersInit`, tuple-array, and record header values remain accepted.
+- `@types/ws` moved from devDependencies to dependencies because published TypeScript declarations reference the `ws` type.
+
+### Fixed
+- Public TypeScript declarations no longer require the DOM lib for `URLGenerationOptions` link-preview header options.
+
 ## 1.6.0-furina - 2026-11-09
 
 ### Features

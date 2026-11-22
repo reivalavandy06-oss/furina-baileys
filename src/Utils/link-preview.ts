@@ -12,13 +12,28 @@ const getCompressedJpegThumbnail = async (url: string, { thumbnailWidth, fetchOp
 	return result
 }
 
+interface HeadersObject {
+	append: (name: string, value: string) => void
+	delete: (name: string) => void
+	get: (name: string) => string | null
+	getSetCookie: () => string[]
+	has: (name: string) => boolean
+	set: (name: string, value: string) => void
+	forEach: (
+		callbackfn: (value: string, key: string, parent: HeadersObject) => void,
+		thisArg?: unknown
+	) => void
+}
+
+type RequestHeadersInit = Record<string, string> | Array<[string, string]> | HeadersObject
+
 export type URLGenerationOptions = {
 	thumbnailWidth: number
 	fetchOpts: {
 		/** Timeout in ms */
 		timeout: number
 		proxyUrl?: string
-		headers?: HeadersInit
+		headers?: RequestHeadersInit
 	}
 	uploadImage?: WAMediaUploadFunction
 	logger?: ILogger

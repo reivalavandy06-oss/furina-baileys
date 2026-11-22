@@ -2,29 +2,34 @@
 // Multi-backend auth state.
 //
 // The file backend is built in (that is what `useMultiFileAuthState` uses).
-// SQLite / MongoDB / Redis are OPTIONAL peer dependencies, resolved lazily via
+// SQLite / MongoDB / Redis are OPTIONAL external drivers, resolved lazily via
 // dynamic import so a normal install never pulls them in.
 //
-// Every backend speaks the same `AuthStore` record contract, so
-// Every helper retains `{ state, saveCreds }`; internally owned DB wrappers also expose `close()`.
+// Every backend speaks the same `AuthStore` record contract.
+// Every helper retains `{ state, saveCreds }`; internally owned DB wrappers can be
+// closed through `closeAuthState()` without changing that historical shape.
 
 import { mkdir, readFile, readdir, stat, unlink, writeFile } from 'fs/promises'
 import { join } from 'path'
 import { proto } from '../../WAProto/index.js'
-import type { AuthStateOptions, AuthStore, AuthenticationCreds, AuthenticationState, SignalDataTypeMap } from '../Types'
+import type { AuthStateOptions, AuthStore, AuthenticationCreds, SignalDataTypeMap } from '../Types'
 import { initAuthCreds } from './auth-utils'
 import { BufferJSON } from './generics'
 import { quoteSQLiteIdentifier } from './auth/sqlite-identifier'
 import {
 	closeAfterFailedInitialization,
+	closeAuthState,
 	closeOnce,
+	exposeLegacyAuthenticationState,
 	manageAuthenticationState,
+	type AuthenticationStateResult,
 	type ManagedAuthenticationState
 } from './auth/owned-resource'
 import { assertCredentialsObject, missingFileOnly, parseAuthRecord, storedString } from './auth/read-validation'
 
 export type { AuthStore, AuthStateOptions }
-export type { ManagedAuthenticationState }
+export type { AuthenticationStateResult, ManagedAuthenticationState }
+export { closeAuthState }
 
 /** Record key holding AuthenticationCreds. Shared so backup/migration tooling
  * can identify the creds record without re-deriving the naming scheme. */
@@ -54,7 +59,7 @@ interface SqliteDb {
 }
 
 /**
- * Resolves an optional peer dependency. The specifier is a variable so
+ * Resolves an optional external dependency. The specifier is a variable so
  * TypeScript cannot resolve it statically — these packages are absent from a
  * normal install.
  */
@@ -74,7 +79,7 @@ const lazyLoad = async (specifier: string): Promise<LooseModule> => {
  */
 export const makeAuthStateFromStore = async (
 	store: AuthStore
-): Promise<{ state: AuthenticationState; saveCreds: () => Promise<void> }> => {
+): Promise<AuthenticationStateResult> => {
 	const rawCreds = await store.get(CREDS_KEY)
 	if (rawCreds !== null && typeof rawCreds !== 'string') {
 		throw new Error('Stored authentication credentials are malformed')
@@ -179,10 +184,24 @@ export const createFileAuthStore = async (folder: string): Promise<AuthStore> =>
 }
 
 // ── optional backends (lazy dynamic imports) ─────────────────────────────
+const validChangeCount = (value: unknown): value is number =>
+	typeof value === 'number' && Number.isInteger(value) && value >= 0
+
+const changeCountFrom = (value: unknown): number | undefined => {
+	if (!value || typeof value !== 'object') return undefined
+	const changes = (value as { changes?: unknown }).changes
+	return validChangeCount(changes) ? changes : undefined
+}
+
 /**
  * Builds an `AuthStore` over an already-open SQLite database. The caller owns the
  * connection (and is responsible for creating the table) — this keeps the store
  * pure enough to unit test against a mock `prepare()`.
+ *
+ * `compareAndSet` is exposed only when the driver can report a reliable affected
+ * row count, either in the `run()` result or through SQLite's connection-local
+ * `changes()` function. Without that capability recovery uses the documented
+ * non-atomic read-before-restore fallback instead of guessing.
  */
 export const createSQLiteAuthStore = (db: SqliteDb, table = 'furina_auth'): AuthStore => {
 	const identifier = quoteSQLiteIdentifier(table)
@@ -192,18 +211,17 @@ export const createSQLiteAuthStore = (db: SqliteDb, table = 'furina_auth'): Auth
 		}[]
 		return rows.length ? storedString(rows[0]?.value) : null
 	}
+	const changesStatement = (() => {
+		try {
+			const statement = db.prepare('SELECT changes() AS changes')
+			return changeCountFrom(statement.all()[0]) === undefined ? undefined : statement
+		} catch {
+			return undefined
+		}
+	})()
 
-	return {
+	const store: AuthStore = {
 		backend: 'sqlite',
-		compareAndSet: async (key, expected, replacement) => {
-			const result =
-				replacement === null
-					? db.prepare('DELETE FROM ' + identifier + ' WHERE key = ? AND value = ?').run(key, expected)
-					: db
-							.prepare('UPDATE ' + identifier + ' SET value = ? WHERE key = ? AND value = ?')
-							.run(replacement, key, expected)
-			return (result as { changes?: number } | undefined)?.changes === 1
-		},
 		get: read,
 		getMany: async keys => {
 			const out: Record<string, string> = {}
@@ -230,12 +248,38 @@ export const createSQLiteAuthStore = (db: SqliteDb, table = 'furina_auth'): Auth
 			db.prepare('DELETE FROM ' + identifier).run()
 		}
 	}
+
+	if (changesStatement) {
+		store.compareAndSet = async (key, expected, replacement) => {
+			const result =
+				replacement === null
+					? db.prepare('DELETE FROM ' + identifier + ' WHERE key = ? AND value = ?').run(key, expected)
+					: db
+							.prepare('UPDATE ' + identifier + ' SET value = ? WHERE key = ? AND value = ?')
+							.run(replacement, key, expected)
+			if (result && typeof (result as { then?: unknown }).then === 'function') {
+				throw new Error('SQLite compareAndSet requires a synchronous driver result')
+			}
+
+			const direct = changeCountFrom(result)
+			if (direct !== undefined) return direct === 1
+
+			const fallback = changeCountFrom(changesStatement.all()[0])
+			if (fallback === undefined) {
+				throw new Error('SQLite driver did not report whether the conditional write was applied')
+			}
+
+			return fallback === 1
+		}
+	}
+
+	return store
 }
 
 export const useSQLiteAuthState = async (
 	folder: string,
 	options: AuthStateOptions = {}
-): Promise<ManagedAuthenticationState> => {
+): Promise<AuthenticationStateResult> => {
 	const table = options.table ?? 'furina_auth'
 	const identifier = quoteSQLiteIdentifier(table)
 	const mod = await lazyLoad('better-sqlite3')
@@ -246,7 +290,9 @@ export const useSQLiteAuthState = async (
 	const close = closeOnce(() => db.close?.())
 	return closeAfterFailedInitialization(async () => {
 		db.prepare('CREATE TABLE IF NOT EXISTS ' + identifier + ' (key TEXT PRIMARY KEY, value TEXT)').run()
-		return manageAuthenticationState(await makeAuthStateFromStore(createSQLiteAuthStore(db, table)), close)
+		return exposeLegacyAuthenticationState(
+			manageAuthenticationState(await makeAuthStateFromStore(createSQLiteAuthStore(db, table)), close)
+		)
 	}, close)
 }
 
@@ -285,7 +331,7 @@ export const createMongoAuthStore = (collection: MongoCollectionLike, close?: ()
 	close: close ? closeOnce(close) : undefined
 })
 
-export const useMongoDBAuthState = async (options: AuthStateOptions = {}): Promise<ManagedAuthenticationState> => {
+export const useMongoDBAuthState = async (options: AuthStateOptions = {}): Promise<AuthenticationStateResult> => {
 	const mod = await lazyLoad('mongodb')
 	const MongoClient = mod['MongoClient'] as new (url: string) => MongoClientLike
 	const client = new MongoClient(options.url ?? 'mongodb://127.0.0.1:27017')
@@ -295,7 +341,9 @@ export const useMongoDBAuthState = async (options: AuthStateOptions = {}): Promi
 		const database = options.database ?? 'furina'
 		const collectionName = options.table ?? 'auth'
 		const collection = client.db(database).collection(collectionName) as MongoCollectionLike
-		return manageAuthenticationState(await makeAuthStateFromStore(createMongoAuthStore(collection)), close)
+		return exposeLegacyAuthenticationState(
+			manageAuthenticationState(await makeAuthStateFromStore(createMongoAuthStore(collection)), close)
+		)
 	}, close)
 }
 
@@ -340,7 +388,7 @@ export const createRedisAuthStore = (
 	})
 })
 
-export const useRedisAuthState = async (options: AuthStateOptions = {}): Promise<ManagedAuthenticationState> => {
+export const useRedisAuthState = async (options: AuthStateOptions = {}): Promise<AuthenticationStateResult> => {
 	const mod = await lazyLoad('redis')
 	const createClient = mod['createClient'] as (opts?: { url?: string }) => RedisClientLike
 	const prefix = `${options.table ?? 'furina:auth'}:`
@@ -350,9 +398,11 @@ export const useRedisAuthState = async (options: AuthStateOptions = {}): Promise
 	})
 	return closeAfterFailedInitialization(async () => {
 		await client.connect()
-		return manageAuthenticationState(
-			await makeAuthStateFromStore(createRedisAuthStore(client, prefix, { ownership: 'borrowed' })),
-			close
+		return exposeLegacyAuthenticationState(
+			manageAuthenticationState(
+				await makeAuthStateFromStore(createRedisAuthStore(client, prefix, { ownership: 'borrowed' })),
+				close
+			)
 		)
 	}, close)
 }

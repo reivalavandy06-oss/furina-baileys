@@ -36,7 +36,9 @@ describe('SQLite identifier interpretation', () => {
 		expect(await store.get('one')).toBeNull()
 		await store.clear?.()
 		expect(await store.keys()).toEqual([])
-		expect(sql.every(query => query.includes(` ${quoted}`))).toBe(true)
+		expect(sql.some(query => query.includes('changes()'))).toBe(true)
+		const recordQueries = sql.filter(query => !query.includes('changes()'))
+		expect(recordQueries.every(query => query.includes(` ${quoted}`))).toBe(true)
 	})
 
 	it.each([

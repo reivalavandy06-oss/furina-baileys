@@ -11,7 +11,7 @@ Koneksi dasar, pairing, dan quick start.
 ### Basic Connection (CommonJS)
 
 ```javascript
-const { makeWASocket, useMultiFileAuthState } = require('@vanzzz/furina-baileys')
+const { makeWASocket, useMultiFileAuthState, DisconnectReason } = require('@vanzzz/furina-baileys')
 
 async function start() {
   const { state, saveCreds } = await useMultiFileAuthState('auth_info')
@@ -25,7 +25,7 @@ async function start() {
     if (connection === 'close') {
       const shouldReconnect = lastDisconnect?.error?.output?.statusCode !== DisconnectReason.loggedOut
       console.log('Connection closed due to:', lastDisconnect?.error)
-      if (shouldReconnect) start()
+      if (shouldReconnect) void start()
     } else if (connection === 'open') {
       console.log('✅ Connected to WhatsApp')
       console.log('User:', sock.user)
@@ -41,7 +41,7 @@ async function start() {
   })
 }
 
-start()
+void start()
 ```
 
 ### Basic Connection (ESM)
@@ -49,20 +49,24 @@ start()
 ```javascript
 import makeWASocket, { useMultiFileAuthState, DisconnectReason } from '@vanzzz/furina-baileys'
 
-const { state, saveCreds } = await useMultiFileAuthState('auth_info')
-const sock = makeWASocket({ auth: state })
+async function start() {
+  const { state, saveCreds } = await useMultiFileAuthState('auth_info')
+  const sock = makeWASocket({ auth: state })
 
-sock.ev.on('creds.update', saveCreds)
-sock.ev.on('connection.update', (update) => {
-  const { connection, lastDisconnect } = update
+  sock.ev.on('creds.update', saveCreds)
+  sock.ev.on('connection.update', (update) => {
+    const { connection, lastDisconnect } = update
 
-  if (connection === 'close') {
-    const shouldReconnect = lastDisconnect?.error?.output?.statusCode !== DisconnectReason.loggedOut
-    if (shouldReconnect) start()
-  } else if (connection === 'open') {
-    console.log('Connected')
-  }
-})
+    if (connection === 'close') {
+      const shouldReconnect = lastDisconnect?.error?.output?.statusCode !== DisconnectReason.loggedOut
+      if (shouldReconnect) void start()
+    } else if (connection === 'open') {
+      console.log('Connected')
+    }
+  })
+}
+
+await start()
 ```
 
 ### Send First Message

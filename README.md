@@ -11,7 +11,7 @@ Fork dari [WhiskeySockets/Baileys](https://github.com/WhiskeySockets/Baileys) de
 [![TypeScript](https://img.shields.io/badge/typescript-5.9-blue.svg)](https://www.typescriptlang.org/)
 [![Dual CJS/ESM](https://img.shields.io/badge/module-dual%20CJS%2FESM-brightgreen.svg)](package.json)
 
-`v1.6.0-furina` · Node.js >= 20
+`v1.6.0-furina` · Node.js ^20.19 atau >=22.12
 
 > [!CAUTION]
 > Baileys 7.0.0 memperkenalkan breaking changes. Baca [migration guide upstream](https://whiskey.so/migrate-latest) sebelum naik versi.
@@ -28,7 +28,7 @@ Fork dari [WhiskeySockets/Baileys](https://github.com/WhiskeySockets/Baileys) de
 - **Button & carousel** — 17 tipe button native, plus `MessageBuilder` fluent untuk compose pesan kompleks
 - **AI Rich Message** — `RichMessageBuilder`/`ORich` untuk teks kaya, code, tabel, embedded screens (A2UI), album, tombol native, dan DSL markdown (`parseRichMarkdown`)
 - **Donation Integrations (Trakteer & Saweria)** — listener WebSocket donasi opsional dengan dukungan multi-target JID (PC, Grup, Channel)
-- **Multi-backend auth store** — `useSQLiteAuthState`/`useMongoDBAuthState`/`useRedisAuthState` (peer deps opsional) di atas kontrak `AuthStore`
+- **Multi-backend auth store** — `useSQLiteAuthState`/`useMongoDBAuthState`/`useRedisAuthState` (driver di-install manual; NekoDB optional peer) di atas kontrak `AuthStore`
 - **Username management** — `checkUsername`, `setUsername`, `getMyUsername`, `findUserByUsername`
 - **Message search index** — `MessageSearchIndex` untuk pencarian full-text & regex atas riwayat pesan
 - **Scheduler & auto-reply** — `MessageScheduler` untuk pesan terjadwal, `AutoReplyEngine` untuk balasan berbasis aturan
@@ -71,7 +71,7 @@ atau
 pnpm add @vanzzz/furina-baileys
 ```
 
-**Kebutuhan:** Node.js >= 20 (library memblokir versi lebih lama saat install). TypeScript >= 5 opsional — library sudah dikompilasi.
+**Kebutuhan:** Node.js ^20.19 atau >=22.12 (library memblokir versi lebih lama saat install). TypeScript >= 5 opsional — library sudah dikompilasi.
 
 ---
 
@@ -111,7 +111,7 @@ async function start() {
   await sock.sendMessage('628xxxxxxxxxx@s.whatsapp.net', { text: 'Halo dari Furina!' })
 }
 
-start()
+void start()
 ```
 
 ### ESM (import)
@@ -145,7 +145,7 @@ async function start() {
   await sock.sendMessage('628xxxxxxxxxx@s.whatsapp.net', { text: 'Halo dari Furina!' })
 }
 
-start()
+void start()
 ```
 
 ---
@@ -156,10 +156,13 @@ gagal. Ini bukan transaksi atomic; hentikan writer dan jangan aktifkan destinati
 yang reject. SQLite mendukung nama literal ber-quote dan `schema.table` secara
 konsisten. Lihat [kontrak recovery dan ownership](docs/auth-stores.md).
 
-Wrapper DB milik library juga menyediakan `await auth.close()` yang idempotent
+Wrapper DB milik library tetap berbentuk `{ state, saveCreds }`. Untuk resource
+yang dimiliki library, gunakan `await closeAuthState(auth)`; helper ini idempotent
 dan menunggu operasi yang sudah admitted. Read failure diteruskan sebagai error,
 bukan dianggap session hilang. Recovery memeriksa konflik dan SQLite mendukung
 conditional rollback; backend tanpa capability atomic tetap wajib offline/exclusive.
+Lihat [upgrade notes](docs/upgrade-notes.md) untuk perbedaan branch pengembangan
+dan package npm terakhir.
 
 ## 🔄 Migrasi dari `furina-baileys`
 
@@ -204,6 +207,7 @@ Ringkasan di atas adalah pintu masuk. Dokumentasi lengkap dipisah per topik supa
 | [VoIP (Fondasi)](docs/voip.md) | Deteksi panggilan masuk & penolakan call (eksperimental) |
 | [Commerce](docs/commerce.md) | Payment request, katalog produk, fetch catalog bisnis |
 | [Multi-Backend Auth Store](docs/auth-stores.md) | File/SQLite/MongoDB/Redis/NekoDB lewat kontrak `AuthStore` |
+| [Upgrade Notes](docs/upgrade-notes.md) | Perubahan branch pengembangan dan batas kompatibilitas |
 | [Utilities](docs/utilities.md) | Username Manager, Search Index, Scheduler, Auto-Reply, Anti-Spam, HD Media |
 | [Event Invites](docs/events.md) | Undangan acara (event) untuk chat/grup |
 | [Integrasi Trakteer](docs/integrations/trakteer.md) | Listener WebSocket donasi Trakteer (opsional) |

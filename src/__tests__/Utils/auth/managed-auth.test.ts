@@ -53,8 +53,20 @@ jest.unstable_mockModule(
 	}),
 	{ virtual: true }
 )
-const { useRedisAuthState, useSQLiteAuthState, useMongoDBAuthState, createRedisAuthStore } =
-	await import('../../../Utils/auth-store')
+const {
+	useRedisAuthState,
+	useSQLiteAuthState,
+	useMongoDBAuthState,
+	createRedisAuthStore,
+	closeAuthState,
+	makeAuthStateFromStore
+} = await import('../../../Utils/auth-store')
+
+type LegacyKeys = keyof Awaited<ReturnType<typeof useRedisAuthState>>
+const legacyKeys: LegacyKeys[] = ['state', 'saveCreds']
+const noCloseKey: 'close' extends LegacyKeys ? never : true = true
+void legacyKeys
+void noCloseKey
 
 describe('library-owned auth lifecycle', () => {
 	beforeEach(() => {
@@ -64,28 +76,42 @@ describe('library-owned auth lifecycle', () => {
 		writeGate = undefined
 		writeEntered = undefined
 	})
-	it('preserves fields and closes an internally created client exactly once', async () => {
+	it('preserves the historical object shape and closes an internally created client exactly once', async () => {
 		const auth = await useRedisAuthState()
+		expect(Object.keys(auth).sort()).toEqual(['saveCreds', 'state'])
 		expect(auth.state).toBeDefined()
 		expect(typeof auth.saveCreds).toBe('function')
-		await Promise.all([auth.close(), auth.close()])
-		await auth.close()
+		await Promise.all([closeAuthState(auth), closeAuthState(auth)])
+		await closeAuthState(auth)
 		expect(quitCount).toBe(1)
 		await expect(auth.saveCreds()).rejects.toThrow('closing')
 	})
 	it.each(['sqlite', 'mongodb'] as const)('closes a successful owned %s wrapper exactly once', async backend => {
 		const auth = backend === 'sqlite' ? await useSQLiteAuthState('synthetic') : await useMongoDBAuthState()
-		const first = auth.close()
-		expect(auth.close()).toBe(first)
+		const first = closeAuthState(auth)
+		expect(closeAuthState(auth)).toBe(first)
 		await first
 		expect(quitCount).toBe(1)
+	})
+	it('rejects lifecycle access for a borrowed wrapper without closing its store', async () => {
+		const store = {
+			backend: 'memory',
+			get: async () => null,
+			getMany: async () => ({}),
+			set: async () => undefined,
+			setMany: async () => undefined,
+			remove: async () => true,
+			keys: async () => []
+		}
+		const borrowed = await makeAuthStateFromStore(store)
+		await expect(closeAuthState(borrowed)).rejects.toThrow('does not own a closable resource')
 	})
 	it('preserves close errors and never retries a failed close concurrently', async () => {
 		const auth = await useRedisAuthState()
 		const original = new Error('synthetic close failure')
 		closeFailure = original
-		const first = auth.close()
-		expect(auth.close()).toBe(first)
+		const first = closeAuthState(auth)
+		expect(closeAuthState(auth)).toBe(first)
 		await expect(first).rejects.toMatchObject({ cause: original, errors: [original] })
 		expect(quitCount).toBe(1)
 	})
@@ -95,8 +121,8 @@ describe('library-owned auth lifecycle', () => {
 		writeEntered = deferred()
 		const save = auth.saveCreds()
 		await writeEntered.promise
-		const a = auth.close(),
-			b = auth.close()
+		const a = closeAuthState(auth),
+			b = closeAuthState(auth)
 		expect(a).toBe(b)
 		expect(quitCount).toBe(0)
 		writeGate.release()

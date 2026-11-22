@@ -16,6 +16,7 @@ interface FakeStatement {
 
 export const makeFakeSqlite = () => {
 	const rows = new Map<string, string>()
+	let lastChanges = 0
 
 	const statement = (
 		all: (...params: unknown[]) => unknown[],
@@ -28,11 +29,14 @@ export const makeFakeSqlite = () => {
 				() => [],
 				(...params) => {
 					const [replacement, key, expected] = params.map(String)
-					if (rows.get(key!) !== expected) return { changes: 0 }
-					rows.set(key!, replacement!)
-					return { changes: 1 }
+					lastChanges = rows.get(key!) === expected ? 1 : 0
+					if (lastChanges) rows.set(key!, replacement!)
+					return { changes: lastChanges }
 				}
 			)
+		}
+		if (sql.startsWith('SELECT changes()')) {
+			return statement(() => [{ changes: lastChanges }], () => undefined)
 		}
 		if (sql.includes('SELECT value FROM')) {
 			return statement(
@@ -49,6 +53,8 @@ export const makeFakeSqlite = () => {
 				() => [],
 				(...params: unknown[]) => {
 					rows.set(String(params[0]), String(params[1]))
+					lastChanges = 1
+					return { changes: lastChanges }
 				}
 			)
 		}
@@ -61,9 +67,16 @@ export const makeFakeSqlite = () => {
 				() => [],
 				(...params: unknown[]) => {
 					if (scoped) {
-						if (sql.includes('AND value = ?') && rows.get(String(params[0])) !== params[1]) return { changes: 0 }
-						return { changes: rows.delete(String(params[0])) ? 1 : 0 }
-					} else rows.clear()
+						if (sql.includes('AND value = ?') && rows.get(String(params[0])) !== params[1]) {
+							lastChanges = 0
+						} else {
+							lastChanges = rows.delete(String(params[0])) ? 1 : 0
+						}
+					} else {
+						lastChanges = rows.size
+						rows.clear()
+					}
+					return { changes: lastChanges }
 				}
 			)
 		}
