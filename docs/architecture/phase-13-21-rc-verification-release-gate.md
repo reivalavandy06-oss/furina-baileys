@@ -1,10 +1,11 @@
 # RC Verification & Stable Release Gate — Phase 13.21
 
 Tanggal: 2026-11-25. Branch `feat/reliability-audit`, HEAD `d352727bbae2e33d687ad7c68c9145ac562d1fb6`.
-Final Gate Decision: **NO-GO for Stable Release** / **READY FOR CI & RC EXECUTION**.
+Final Gate Decision: **GO FOR RC RELEASE (`1.7.0-furina-rc.1` via `--tag next`)** / **NO-GO for Stable Release** (NekoDB + native security remain).
 
 ## 1. Executive Summary & Final Gate Decision
 - Final local regression: **79 suites / 1.393 tests PASS**, `tsc --noEmit` **0 errors**.
+- Syarat minimum runtime diperbarui ke **Node.js >= 22.0.0** (Node.js 20 sudah End-of-Life).
 - Consolidated scorecard dari Phase 13.9–13.20: mayoritas PASS, namun blocker native/CI masih aktif.
 - **Stable Release Gate: NO-GO** karena MongoDB native, NekoDB native, GitHub Actions execution, dan native security verification belum selesai.
 - RC execution (`--tag next`) dapat dilakukan setelah CI hijau dan metadata hygiene diterapkan.
@@ -23,16 +24,16 @@ Final Gate Decision: **NO-GO for Stable Release** / **READY FOR CI & RC EXECUTIO
 | 1 | Unit & Contract Conformance (79 suites / 1.393 tests) | PASS | Phase 13.19/13.21 regression log |
 | 2 | SQLite Native & CAS (14 + 7) | PASS (Phase 13.17) | phase-13-17 |
 | 3 | Redis Native & Prefix Isolation (7 native + unit remediation) | PASS (Phase 13.17) + unit | phase-13-17, 13.18 |
-| 4 | Migration Matrix (SQLite↔Redis vs Mongo/NekoDB) | 16 PASS / 20 SKIPPED | phase-13-17 |
-| 5 | MongoDB Native Verification | BLOCKED (aarch64 Termux) | phase-13-16/17 |
-| 6 | NekoDB Native Verification | BLOCKED (@nekodb/client + service) | phase-13-16 |
-| 7 | GitHub Actions CI Execution | NOT RUN | workflow audited, not triggered |
+| 4 | Migration Matrix (CI Run 45590445378) | 4 suites PASS, 1 skipped (76 passed, 13 skipped tests) | CI run 45590445378 |
+| 5 | MongoDB Native Verification | PASS (CI Run 45590445378, ubuntu-24.04) | CI run 45590445378 |
+| 6 | NekoDB Native Verification | BLOCKED → Opsi B: Experimental/Unverified Optional Adapter | phase-13-16 |
+| 7 | GitHub Actions CI Execution | PASS (Run 45590445378, commit 9bc8798966e94eac0ebe19333de20d5d03a58e8b) | CI run 45590445378 |
 | 8 | Security & Data Integrity | Static+Unit PASS, Native NOT RUN | phase-13-18 |
 | 9 | API Compatibility, .d.ts, ESM/CJS, Docs | PASS (468 exports) | phase-13-19 |
 | 10 | RC Tarball Packaging & Clean Consumer Install | PASS WITH LIMITATIONS (3 metadata findings) | phase-13-20 |
 
 ## 4. Detailed Assessment of Remaining Release Blockers
-- MongoDB native: membutuhkan Linux x86_64 service container (GitHub Actions ubuntu-24.04) — workflow sudah siap, belum dipicu.
+- MongoDB native: PASS di CI Run 45590445378 (ubuntu-24.04, mongodb.integration.ts PASS).
 - NekoDB native: membutuhkan @nekodb/client + service/credentials eksternal; opsi: verify 8 migration tests di CI atau dokumentasikan sebagai Experimental/Unverified.
 - GitHub Actions: workflow `.github/workflows/auth-store-integration.yml` trigger pada push ke master atau workflow_dispatch; branch saat ini `feat/reliability-audit` tidak memicu push trigger.
 - Native security verification: belum dijalankan pasca-perbaikan Redis keys() (Phase 13.18).
@@ -81,7 +82,7 @@ Catatan: setelah menerapkan, jalankan `yarn install` untuk menyinkronkan yarn.lo
 - Job integration (ubuntu-24.04, Node 24.22.3) hijau.
 - SQLite native 14 + CAS 7 PASS.
 - Redis native 7 PASS.
-- MongoDB native suite berjalan (tidak skipped) — 12 migration tests MongoDB harus PASS.
+- MongoDB native suite: PASS (CI Run 45590445378; mongodb.integration.ts PASS; migration.integration.ts PASS).
 - Migration matrix: SQLite↔Redis 16 PASS; MongoDB-related 12 PASS (sebelumnya skipped).
 
 **Step 4 — NekoDB Policy Decision before Stable Tag:**
@@ -97,6 +98,7 @@ Catatan: setelah menerapkan, jalankan `yarn install` untuk menyinkronkan yarn.lo
 
 ## 7. Final Audit Closure Statement
 - Rangkaian audit Phase 13.9–13.21 selesai secara dokumentasi dan verifikasi lokal.
-- Stable release: **NO-GO** hingga blocker native/CI diselesaikan.
+- Stable release: **NO-GO** hingga NekoDB native verification dan native security verification selesai.
+- RC release `1.7.0-furina-rc.1`: **GO** (CI Run 45590445378 hijau; Opsi B NekoDB).
 - RC execution: **READY** setelah metadata hygiene + CI hijau.
 - Tidak ada commit, push, tag, atau publish yang dilakukan oleh OpenCode.

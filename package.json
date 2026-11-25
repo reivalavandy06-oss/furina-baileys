@@ -1,6 +1,6 @@
 {
   "name": "@vanzzz/furina-baileys",
-  "version": "1.6.0-furina",
+  "version": "1.7.0-furina-rc.1",
   "description": "Baileys versi Furina untuk membuat bot WhatsApp dengan lebih banyak fitur dan lainnya",
   "keywords": [
     "whatsapp",
@@ -211,6 +211,6 @@
   },
   "packageManager": "yarn@4.18.1",
   "engines": {
-    "node": "^20.19.0 || >=22.12.0"
+    "node": ">=22.0.0"
   }
 }
