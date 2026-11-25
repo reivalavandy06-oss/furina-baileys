@@ -83,7 +83,7 @@ jobs:
 
       - name: Install optional test drivers
         run: |
-          node .yarn/releases/yarn-4.18.1.cjs add --optional better-sqlite3@^11.0.0 redis@^5.0.0 mongodb@^6.0.0
+          node .yarn/releases/yarn-4.18.1.cjs add -D better-sqlite3@^11.0.0 redis@^5.0.0 mongodb@^6.0.0
           git checkout -- package.json yarn.lock
           node --input-type=module -e "for (const pkg of ['better-sqlite3', 'redis', 'mongodb']) { await import(pkg); console.log('LOADED:', pkg); }"
 
