@@ -55,7 +55,7 @@ jobs:
 
     env:
       FURINA_TEST_REQUIRED_BACKENDS: sqlite,redis,mongodb
-      FURINA_TEST_SQLITE_DIR: ${{ runner.temp }}/furina-auth-it
+      FURINA_TEST_SQLITE_DIR: /tmp/furina-auth-it
       FURINA_TEST_REDIS_URL: redis://127.0.0.1:6379
       FURINA_TEST_MONGODB_URL: mongodb://127.0.0.1:27017
       NODE_OPTIONS: --max-old-space-size=2048
