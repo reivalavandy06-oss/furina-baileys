@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 1.7.0-furina-rc.1 - 2026-11-25
+
 ### Fixed
 - SQLite `compareAndSet` now reliably detects conditional mutation results, including structural drivers that return void from `run()`, by reading `changes` from the result or `SELECT changes()` on the same connection.
 - Restored the historical `{ state, saveCreds }` runtime shape and default return type for owned SQLite/Mongo/Redis Auth State wrappers; close is available through the additive `closeAuthState(auth)` helper instead of a new wrapper field.
@@ -13,7 +15,8 @@
 - SQLite CAS regression tests for supported, structural, unsupported, delete, and driver-throw paths.
 
 ### Changed
-- Node.js engine range is now `^20.19.0 || >=22.12.0`.
+- Node.js engine range is now `>=22.0.0` (Node.js 20 is End-of-Life).
+- NekoDB (`@nekodb/client`) is documented as *Experimental / Unverified Optional Adapter*.
 - NekoDB internal test-seam exports are removed from the root package barrel while remaining available to internal unit tests.
 - `URLGenerationOptions.fetchOpts.headers` now uses a structural, Node-safe header type instead of the DOM-only `HeadersInit` alias; existing `Headers`, `HeadersInit`, tuple-array, and record header values remain accepted.
 - `@types/ws` moved from devDependencies to dependencies because published TypeScript declarations reference the `ws` type.
