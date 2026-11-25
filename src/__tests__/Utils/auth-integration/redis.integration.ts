@@ -73,7 +73,29 @@ await integrationSuite('auth state conformance', 'redis', (_ready, { realAuthSta
 
 		expect((await layout.keys()).sort()).toEqual(['pre-key-1.json', 'session-628@s.whatsapp.net.json'])
 
-		await layout.remove('pre-key-1.json')
+		await expect(layout.remove('pre-key-1.json')).resolves.toBe(true)
 		expect(await layout.get('pre-key-1.json')).toBeNull()
+		await expect(layout.remove('pre-key-1.json')).resolves.toBe(false)
+	})
+
+	it('returns an empty object for getMany([]) and clears an empty store', async () => {
+		const storeInstance = await store('empty-contract')
+
+		await expect(storeInstance.getMany([])).resolves.toEqual({})
+		await expect(storeInstance.clear?.()).resolves.toBeUndefined()
+		expect(await storeInstance.keys()).toEqual([])
+	})
+
+	it('preserves sibling namespaces during clear', async () => {
+		const first = await store(unique('clear-a'))
+		const second = await store(unique('clear-b'))
+
+		await first.setMany({ shared: 'first', onlyFirst: 'first' })
+		await second.setMany({ shared: 'second', onlySecond: 'second' })
+
+		await first.clear?.()
+
+		expect(await first.keys()).toEqual([])
+		expect(await second.getMany(['shared', 'onlySecond'])).toEqual({ shared: 'second', onlySecond: 'second' })
 	})
 })

@@ -77,9 +77,7 @@ const lazyLoad = async (specifier: string): Promise<LooseModule> => {
  * Builds an `AuthenticationState` on top of an arbitrary {@link AuthStore}.
  * This is the shared core used by every `useXAuthState` helper.
  */
-export const makeAuthStateFromStore = async (
-	store: AuthStore
-): Promise<AuthenticationStateResult> => {
+export const makeAuthStateFromStore = async (store: AuthStore): Promise<AuthenticationStateResult> => {
 	const rawCreds = await store.get(CREDS_KEY)
 	if (rawCreds !== null && typeof rawCreds !== 'string') {
 		throw new Error('Stored authentication credentials are malformed')
@@ -240,8 +238,21 @@ export const createSQLiteAuthStore = (db: SqliteDb, table = 'furina_auth'): Auth
 			}
 		},
 		remove: async key => {
-			db.prepare('DELETE FROM ' + identifier + ' WHERE key = ?').run(key)
-			return true
+			const result = db.prepare('DELETE FROM ' + identifier + ' WHERE key = ?').run(key)
+			if (result && typeof (result as { then?: unknown }).then === 'function') {
+				throw new Error('SQLite remove requires a synchronous driver result')
+			}
+
+			const direct = changeCountFrom(result)
+			if (direct !== undefined) return direct > 0
+			if (!changesStatement) return true
+
+			const fallback = changeCountFrom(changesStatement.all()[0])
+			if (fallback === undefined) {
+				throw new Error('SQLite driver did not report whether the delete was applied')
+			}
+
+			return fallback > 0
 		},
 		keys: async () => (db.prepare('SELECT key FROM ' + identifier).all() as { key: string }[]).map(row => row.key),
 		clear: async () => {
@@ -321,8 +332,13 @@ export const createMongoAuthStore = (collection: MongoCollectionLike, close?: ()
 		}
 	},
 	remove: async key => {
-		await collection.deleteOne({ key })
-		return true
+		const result = await collection.deleteOne({ key })
+		const deleted = (result as { deletedCount?: unknown } | undefined)?.deletedCount
+		if (deleted === undefined) return true
+		if (typeof deleted !== 'number' || !Number.isInteger(deleted) || deleted < 0) {
+			throw new Error('MongoDB driver returned an invalid deletedCount')
+		}
+		return deleted > 0
 	},
 	keys: async () => (await collection.find({}, { projection: { key: 1 } }).toArray()).map(row => row.key),
 	clear: async () => {
@@ -359,6 +375,8 @@ export const createRedisAuthStore = (
 	backend: 'redis',
 	get: async key => await client.get(prefix + key),
 	getMany: async keys => {
+		if (keys.length === 0) return {}
+
 		const values = await client.mGet(keys.map(key => prefix + key))
 		const out: Record<string, string> = {}
 		keys.forEach((key, index) => {
@@ -376,12 +394,37 @@ export const createRedisAuthStore = (
 		}
 	},
 	remove: async key => {
-		await client.del([prefix + key])
-		return true
+		const deleted = await client.del([prefix + key])
+		return typeof deleted === 'number' ? deleted > 0 : true
 	},
-	keys: async () => (await client.keys(`${prefix}*`)).map(key => key.slice(prefix.length)),
+	keys: async () => (await client.keys(`${prefix}*`)).filter(key => key.startsWith(prefix)).map(key => key.slice(prefix.length)),
 	clear: async () => {
-		await client.del(await client.keys(`${prefix}*`))
+		const escapedPrefix = prefix.replace(/\\/g, '\\\\').replace(/[*?[\]]/g, '\\$&')
+		const pattern = `${escapedPrefix}*`
+		const matched = new Set<string>()
+		let cursor = '0'
+
+		if (typeof client.scan === 'function') {
+			do {
+				const reply = await client.scan(cursor, { MATCH: pattern, COUNT: 100 })
+				cursor = String(reply.cursor)
+				for (const key of reply.keys) {
+					if (key.startsWith(prefix)) matched.add(key)
+				}
+			} while (cursor !== '0')
+		} else {
+			for (const key of await client.keys(`${prefix}*`)) {
+				if (key.startsWith(prefix)) matched.add(key)
+			}
+		}
+
+		const keys = [...matched]
+		if (keys.length === 0) return
+
+		const deleteKeys = typeof client.unlink === 'function' ? client.unlink.bind(client) : client.del.bind(client)
+		for (let index = 0; index < keys.length; index += 100) {
+			await deleteKeys(keys.slice(index, index + 100))
+		}
 	},
 	close: closeOnce(async () => {
 		if (options.ownership !== 'borrowed') await client.quit()
@@ -438,6 +481,8 @@ interface RedisClientLike {
 	mGet: (keys: string[]) => Promise<(string | null)[]>
 	set: (key: string, value: string) => Promise<unknown>
 	del: (keys: string[]) => Promise<number>
+	scan?: (cursor: string, options?: { MATCH?: string; COUNT?: number }) => Promise<{ cursor: string; keys: string[] }>
+	unlink?: (keys: string[]) => Promise<number>
 	keys: (pattern: string) => Promise<string[]>
 	quit: () => Promise<void>
 }

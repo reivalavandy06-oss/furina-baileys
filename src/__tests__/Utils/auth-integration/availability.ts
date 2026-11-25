@@ -2,7 +2,8 @@ import { randomUUID } from 'crypto'
 import { tmpdir } from 'os'
 import { join } from 'path'
 
-export type BackendName = 'nekodb' | 'sqlite' | 'redis'
+export type BackendName = 'mongodb' | 'nekodb' | 'sqlite' | 'redis'
+const LOOPBACK_HOSTS = ['127.0.0.1', 'localhost', '[::1]', '::1']
 export interface Readiness {
 	available: true
 	isolation: 'loopback' | 'isolated'
@@ -62,13 +63,32 @@ export const createBackendChecks = (env: NodeJS.ProcessEnv = process.env, load: 
 			return blocked(driver, 'Invalid Redis test endpoint')
 		}
 		if (!['redis:', 'rediss:'].includes(endpoint.protocol)) return blocked(driver, 'Invalid Redis test protocol')
-		const local = ['127.0.0.1', 'localhost', '[::1]', '::1'].includes(endpoint.hostname)
+		const local = LOOPBACK_HOSTS.includes(endpoint.hostname)
 		const remote = env.FURINA_TEST_ALLOW_REMOTE_REDIS === '1' || env.FURINA_TEST_ALLOW_REMOTE_REDIS === 'true'
 		if (!local && !remote) return blocked(driver, 'Redis endpoint requires an explicit isolated-instance opt-in')
 		const prefix = env.FURINA_TEST_REDIS_PREFIX ?? 'furina-test'
 		if (!prefix || /[\x00-\x1f*?\[\]\\]/.test(prefix))
 			return blocked(driver, 'Redis test prefix contains pattern characters')
 		return ready(`${prefix}:${run}:`, local ? 'loopback' : 'isolated')
+	}
+	const mongodb = async (): Promise<BackendCheck> => {
+		const driver = await hasDriver('mongodb')
+		if (!driver) return blocked(false, 'mongodb not installed')
+		if (!env.FURINA_TEST_MONGODB_URL) return blocked(driver, 'FURINA_TEST_MONGODB_URL not set')
+		let endpoint: URL
+		try {
+			endpoint = new URL(env.FURINA_TEST_MONGODB_URL)
+		} catch {
+			return blocked(driver, 'Invalid MongoDB test endpoint')
+		}
+		if (!['mongodb:', 'mongodb+srv:'].includes(endpoint.protocol))
+			return blocked(driver, 'Invalid MongoDB test protocol')
+		const local = LOOPBACK_HOSTS.includes(endpoint.hostname)
+		const remote = env.FURINA_TEST_ALLOW_REMOTE_MONGODB === '1' || env.FURINA_TEST_ALLOW_REMOTE_MONGODB === 'true'
+		if (!local && !remote) return blocked(driver, 'MongoDB endpoint requires an explicit isolated-instance opt-in')
+		const prefix = env.FURINA_TEST_MONGODB_PREFIX ?? 'furina_it'
+		if (!/^[A-Za-z0-9_-]{1,24}$/.test(prefix)) return blocked(driver, 'Invalid MongoDB test namespace prefix')
+		return ready(`${prefix}_${run.replace(/-/g, '')}`, local ? 'loopback' : 'isolated')
 	}
 	const nekodb = async (): Promise<BackendCheck> => {
 		const driver = await hasDriver('@nekodb/client')
@@ -83,11 +103,12 @@ export const createBackendChecks = (env: NodeJS.ProcessEnv = process.env, load: 
 		if (!/^[\w-]+$/.test(prefix)) return blocked(driver, 'Invalid NekoDB test namespace prefix')
 		return ready(`${prefix}-${run}`, 'isolated')
 	}
-	return { sqlite, redis, nekodb }
+	return { mongodb, sqlite, redis, nekodb }
 }
 
 export const CHECKS = createBackendChecks()
 export const checkSqlite = CHECKS.sqlite
 export const checkRedis = CHECKS.redis
+export const checkMongoDB = CHECKS.mongodb
 export const checkNekoDB = CHECKS.nekodb
 export const isReady = (check: BackendCheck): check is Readiness => check.available

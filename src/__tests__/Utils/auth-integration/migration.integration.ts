@@ -32,10 +32,16 @@ const snapshot = async (store: AuthStore) => store.getMany(await store.keys())
 const unique = (name: string) => `it-${name}-${Date.now()}-${process.pid}`
 
 const DIRECTIONS: [BackendName, BackendName][] = [
+	['mongodb', 'nekodb'],
+	['mongodb', 'redis'],
+	['mongodb', 'sqlite'],
+	['nekodb', 'mongodb'],
 	['nekodb', 'sqlite'],
 	['nekodb', 'redis'],
+	['sqlite', 'mongodb'],
 	['sqlite', 'nekodb'],
 	['sqlite', 'redis'],
+	['redis', 'mongodb'],
 	['redis', 'nekodb'],
 	['redis', 'sqlite']
 ]
@@ -110,6 +116,18 @@ describe.each(resolved)('migration $from → $to', ({ from, to, blocked }) => {
 
 		expect(await snapshot(sourceA)).toEqual(records('a'))
 		expect(await snapshot(sourceB)).toEqual(records('b'))
+	})
+
+	it('is idempotent when run twice against the same source and destination', async () => {
+		const source = await realStore(from, unique(`idempotent-src-${from}-${to}`))
+		await source.setMany(records(from))
+
+		const target = await realStore(to, unique(`idempotent-dst-${from}-${to}`))
+		await migrateAuthState(source, target)
+		await migrateAuthState(source, target)
+
+		expect(await snapshot(source)).toEqual(records(from))
+		expect(await snapshot(target)).toEqual(records(from))
 	})
 
 	it('rejects migrating a store onto itself', async () => {

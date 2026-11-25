@@ -1,0 +1,17 @@
+Unit/mock (from Phase 13.14 full run with temporary better-sqlite3 symlink present):
+- Jest discovered 79 *.test.ts files.
+- Result: 1 failed, 78 passed, 79 total suites; 1 failed, 1382 passed, 1383 total tests.
+- The single failure was src/__tests__/Utils/fase-9.test.ts due the temporary better-sqlite3 symlink; without that symlink the suite passes.
+
+Native/conformance baseline before Phase 13.15:
+- SQLite native integration: 14 tests passed (1 suite).
+- SQLite CAS: 7 tests passed.
+- Redis native integration: 5 tests passed (1 suite).
+- AuthStore conformance: 37 tests passed (1 suite).
+- Migration integration in current environment: 13 passed, 1 failed, 20 skipped (34 total).
+- Combined native before remediation: 2 suites passed, 1 failed, 2 skipped; 32 passed, 1 failed, 22 skipped.
+
+Phase 13.14 findings carried into Phase 13.15:
+- F-14-01: Redis getMany([]) threw ERR wrong number of arguments for 'mget' command.
+- F-14-02: Redis clear() on empty store threw ERR wrong number of arguments for 'del' command.
+- F-14-03: SQLite -> Redis migration failed because the empty destination called getMany([]).

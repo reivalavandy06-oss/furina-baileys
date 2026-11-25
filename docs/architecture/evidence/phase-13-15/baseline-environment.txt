@@ -1,0 +1,10 @@
+Timestamp: 2026-11-24T06:36:52Z
+Branch: feat/reliability-audit
+HEAD: d352727bbae2e33d687ad7c68c9145ac562d1fb6
+Node: v22.23.5
+Yarn: 4.18.1
+npm: 10.9.9
+Redis client dependency: redis@6.4.0 (/tmp/opencode/p1312-drivers/node_modules/redis)
+SQLite driver: better-sqlite3@13.2.0 (/tmp/opencode/p1312-drivers/node_modules/better-sqlite3)
+Redis server: Redis server v=7.4.2 sha=00000000:1 malloc=libc bits=64 build=5b36540cbd2bfbb1
+Working tree: uncommitted user changes and Phase 13.9-13.14 reports preserved

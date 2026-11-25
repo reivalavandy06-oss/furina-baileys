@@ -1,0 +1,5 @@
+Branch: feat/reliability-audit
+HEAD: d352727bbae2e33d687ad7c68c9145ac562d1fb6
+Working tree: modified + untracked (Phase 13.9-13.17 reports, evidence, integration tests, workflow).
+Protected docs/reports present.
+No commit performed.

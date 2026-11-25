@@ -101,6 +101,25 @@ const runConformanceSuite = ({ label, makeStore, reset }: Adapter) => {
 			expect(await store.get('never-existed.json')).toBeNull()
 		})
 
+		it('reports whether remove() actually deleted a record', async () => {
+			const store = await makeStore()
+
+			await store.set('session-to-delete.json', '"bye"')
+			await expect(store.remove('session-to-delete.json')).resolves.toBe(true)
+			await expect(store.remove('session-to-delete.json')).resolves.toBe(false)
+			await expect(store.remove('never-existed.json')).resolves.toBe(false)
+		})
+
+		it('returns an empty object for getMany([])', async () => {
+			const store = await makeStore()
+			await expect(store.getMany([])).resolves.toEqual({})
+		})
+
+		it('clears an empty store without error', async () => {
+			const store = await makeStore()
+			await expect(store.clear?.()).resolves.toBeUndefined()
+		})
+
 		it('keeps two sessions in the same collection from mixing', async () => {
 			const storeA = await makeStore()
 			const storeB = await makeStore()

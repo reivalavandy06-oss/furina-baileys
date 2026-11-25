@@ -5,15 +5,24 @@
 ## Status dan runner
 
 Fase 13.4 memperbaiki readiness, isolasi, registration, dan teardown harness.
-**Backend nyata yang diuji di lingkungan ini: 0.** Test doubles memverifikasi
-orchestration; hasilnya bukan bukti durability, transaksi, atau API koneksi driver
-nyata. Driver/service tidak dipasang otomatis dan `.env` tidak dibaca.
+Fase 13.12 menambahkan suite MongoDB dan verifikasi SQLite native melalui
+`better-sqlite3`, termasuk conditional write. Backend lain tetap **NOT RUN**
+kecuali driver dan instance test terisolasi tersedia. Test doubles hanya
+memverifikasi orchestration; hasilnya bukan bukti durability, transaksi, atau
+API koneksi driver nyata. Driver/service tidak dipasang otomatis dan `.env`
+tidak dibaca. Lihat [laporan Fase 13.12](../architecture/phase-13-12-auth-store-integration-readiness.md).
 
 ```bash
 node --import tsx scripts/check-integration-env.ts
 # Hanya dengan infrastruktur test terisolasi yang telah disiapkan:
 npm run test:integration
 ```
+
+`FURINA_TEST_REQUIRED_BACKENDS=sqlite,redis,mongodb` membuat runner gagal
+dengan exit 2 jika backend yang diwajibkan tidak ready; tanpa variabel ini
+backend yang tidak tersedia tetap dilaporkan `NOT RUN`, bukan passed. Workflow
+`.github/workflows/auth-store-integration.yml` memakai service Redis/MongoDB
+ephemeral dan mewajibkan ketiga backend tersebut.
 
 Probe tidak membuka koneksi atau membuat direktori. Import driver hanya untuk
 memeriksa apakah paket dapat dimuat. Driver tersedia bukan bukti endpoint dapat
@@ -31,16 +40,22 @@ mencakup unit regression helpers harness. Tidak ada kebutuhan backend bagi unit.
 |---|---|---|
 | SQLite | `better-sqlite3`; optional `FURINA_TEST_SQLITE_DIR` sebagai base directory | Child directory UUID privat per context; hashed file per logical session; tabel tetap `furina_auth` |
 | Redis | `redis` + `FURINA_TEST_REDIS_URL` dengan protocol redis/rediss | UUID prefix stabil per context, hash session; reopen memakai prefix sama |
+| MongoDB | `mongodb` + `FURINA_TEST_MONGODB_URL` dengan protocol mongodb/mongodb+srv | Database UUID per context, collection hash per logical session; cleanup hanya collection yang dibuat harness |
 | NekoDB | `@nekodb/client` + `FURINA_TEST_NEKODB_HOST`, `FURINA_TEST_NEKODB_USERNAME`, `FURINA_TEST_NEKODB_PASSWORD`, `FURINA_TEST_NEKODB_TEST_INSTANCE=1` atau `true` | Collection prefix UUID + hash session; foreign collections tidak dibersihkan |
 
 Redis menerima loopback atau remote dengan
-`FURINA_TEST_ALLOW_REMOTE_REDIS=1`/`true`. Loopback bukan bukti instance nonproduksi:
-caller tetap wajib memilih endpoint test. Optional `FURINA_TEST_REDIS_PREFIX`
-tidak boleh mengandung glob/control characters. Cleanup memakai prefix literal
-yang sama, menyaring hasil KEYS dengan startsWith sebelum DEL. Tidak memakai
-FLUSHDB/FLUSHALL. Optional `FURINA_TEST_NEKODB_NAMESPACE` adalah **prefix**, bukan
-nama collection existing yang akan dikosongkan. Flags isolasi adalah assertion
-operator, bukan pemeriksaan server. Jangan gunakan credentials/endpoint produksi.
+`FURINA_TEST_ALLOW_REMOTE_REDIS=1`/`true`. MongoDB menerima loopback atau remote
+dengan `FURINA_TEST_ALLOW_REMOTE_MONGODB=1`/`true`. Loopback bukan bukti instance
+nonproduksi: caller tetap wajib memilih endpoint test. Optional
+`FURINA_TEST_REDIS_PREFIX` tidak boleh mengandung glob/control characters.
+Optional `FURINA_TEST_MONGODB_PREFIX` hanya boleh `A-Z`, `a-z`, `0-9`, `_`, atau
+`-` (maksimal 24 karakter). Cleanup Redis memakai prefix literal yang sama,
+menyaring hasil KEYS dengan startsWith sebelum DEL. Tidak memakai
+FLUSHDB/FLUSHALL. Cleanup MongoDB memakai `deleteMany({})` pada collection yang
+dibuat harness, bukan drop database. Optional `FURINA_TEST_NEKODB_NAMESPACE`
+adalah **prefix**, bukan nama collection existing yang akan dikosongkan. Flags
+isolasi adalah assertion operator, bukan pemeriksaan server. Jangan gunakan
+credentials/endpoint produksi.
 
 Setiap suite/context mendapat UUID sendiri; nama logical session yang sama
 reopen storage sama dalam context itu. SQLite override base tidak dihapus;
@@ -51,11 +66,13 @@ CREATE dan query.
 ## Ownership dan teardown
 
 `createIntegrationStores()` mempunyai registry sendiri. SQLite DB, Redis client,
-dan Neko client didaftarkan segera setelah dibuat, sebelum schema/connect/duck
-typing. State tests menyusun `makeAuthStateFromStore(rawStore)` supaya handle
-tetap dimiliki harness; ini bukan pengujian langsung seluruh wrapper useXAuthState.
-Neko constructor/export/init aktual tetap perlu dikonfirmasi pada versi driver
-yang disiapkan; method checks tidak membuktikan koneksi/auth benar.
+Mongo client, dan Neko client didaftarkan segera setelah dibuat, sebelum
+schema/connect/duck typing. State tests menyusun
+`makeAuthStateFromStore(rawStore)` supaya handle tetap dimiliki harness; suite
+SQLite juga menguji wrapper `useSQLiteAuthState()` dan `closeAuthState()`
+langsung. Wrapper Redis/Mongo/Neko tidak otomatis tercakup oleh pola ini. Neko
+constructor/export/init aktual tetap perlu dikonfirmasi pada versi driver yang
+disiapkan; method checks tidak membuktikan koneksi/auth benar.
 
 Conformance dan migration suites memasang afterAll yang menunggu registry.
 LIFO menempatkan namespace cleanup sebelum close client jaringan dan DB closure
@@ -87,10 +104,12 @@ jawab driver.
 
 ## Cakupan dan batas bukti
 
-SQLite/Redis/NekoDB conformance mencakup creds sintetis, Signal key persistence,
-reopen, isolasi session, dan backup/restore. Enam arah migrasi di antara tiga
-backend tersedia bila kedua backend ready. MongoDB didukung produksi, tetapi
-belum mempunyai suite integrasi di harness ini.
+SQLite/Redis/MongoDB/NekoDB conformance mencakup creds sintetis, Signal key
+persistence, reopen, isolasi session, dan backup/restore. SQLite juga menguji
+`compareAndSet()` native, konflik dua koneksi, fallback `SELECT changes()` saat
+`run()` tidak mengembalikan metadata, serta close wrapper yang dimiliki. Dua
+belas arah migrasi di antara empat backend tersedia bila kedua backend ready;
+arah yang melibatkan backend tidak tersedia dilaporkan `NOT RUN`.
 
 Unit regressions dengan test doubles mencakup missing driver meski config lengkap,
 endpoint invalid/missing, namespace stabil dan terpisah antar run, cleanup setelah

@@ -1,0 +1,21 @@
+Unit/mock after Phase 13.15:
+- Jest discovered 79 *.test.ts files.
+- Result: 79 suites passed, 79 total; 1393 tests passed, 1393 total.
+- +10 tests from AuthStore conformance empty getMany/clear regression cases.
+- +2 tests from Redis native empty contract and sibling namespace cases.
+- +2 tests from migration idempotency cases in the two available directions.
+- Full suite count increase: 1383 -> 1393 (+10 unit tests; integration tests are separate).
+
+Native/conformance after Phase 13.15:
+- SQLite native integration: 14 tests passed (1 suite).
+- SQLite CAS: 7 tests passed.
+- Redis native integration: 7 tests passed (1 suite).
+- AuthStore conformance: 47 tests passed (1 suite).
+- Migration integration: 16 passed, 20 skipped (36 total).
+- Combined native: 3 suites passed, 2 skipped; 37 passed, 22 skipped.
+
+Post-remediation checks:
+- TypeScript: tsc --noEmit PASS.
+- Lint: 0 errors, 1360 warnings.
+- Redis after-fix repro: getMany([]) -> {}, MGET calls 0; clear empty resolved; sibling namespace preserved.
+- Migration after-fix: 16 passed, 20 skipped, 0 failed.

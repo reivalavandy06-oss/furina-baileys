@@ -2,7 +2,12 @@ import { createHash } from 'crypto'
 import { mkdir, rm } from 'fs/promises'
 import { join } from 'path'
 import type { AuthStore } from '../../../Types'
-import { createRedisAuthStore, createSQLiteAuthStore, makeAuthStateFromStore } from '../../../Utils/auth-store'
+import {
+	createMongoAuthStore,
+	createRedisAuthStore,
+	createSQLiteAuthStore,
+	makeAuthStateFromStore
+} from '../../../Utils/auth-store'
 import { createNekoDBAuthStore, type NekoDBLike } from '../../../Utils/auth/nekodb-auth'
 import { createBackendChecks, isReady, loadDriver, type BackendName, type ModuleLoader } from './availability'
 import { createDisposalRegistry } from './lifecycle'
@@ -22,6 +27,22 @@ interface RedisClientish {
 	set: (key: string, value: string) => Promise<unknown>
 	del: (keys: string[]) => Promise<number>
 	keys: (pattern: string) => Promise<string[]>
+}
+interface MongoRecord {
+	key: string
+	value: string
+}
+interface MongoCollectionish {
+	findOne: (query: unknown) => Promise<MongoRecord | null>
+	find: (query?: unknown, projection?: unknown) => { toArray: () => Promise<MongoRecord[]> }
+	replaceOne: (query: unknown, doc: unknown, options?: unknown) => Promise<unknown>
+	deleteOne: (query: unknown) => Promise<unknown>
+	deleteMany: (query?: unknown) => Promise<unknown>
+}
+interface MongoClientish {
+	connect: () => Promise<void>
+	db: (name: string) => { collection: (name: string) => MongoCollectionish }
+	close: () => Promise<void>
 }
 const toNekoDBLike = (client: unknown): NekoDBLike => {
 	if (client && typeof client === 'object') {
@@ -78,6 +99,25 @@ export const createIntegrationStores = (
 			registry.addDependency(folderLabels.get(check.namespace)!, closeLabel, true)
 			db.prepare('CREATE TABLE IF NOT EXISTS furina_auth (key TEXT PRIMARY KEY, value TEXT)').run()
 			return createSQLiteAuthStore(db)
+		}
+		if (backend === 'mongodb') {
+			const mod = await load('mongodb')
+			registry.assertOpen()
+			const MongoClient = mod.MongoClient as new (url: string) => MongoClientish
+			const client = new MongoClient(env.FURINA_TEST_MONGODB_URL as string)
+			const connecting = client.connect()
+			const closeLabel = registry.track(`mongodb-close-${++sequence}`, async () => {
+				await connecting.catch(() => undefined)
+				await client.close()
+			})
+			await connecting
+			registry.assertOpen()
+			const collection = client.db(check.namespace).collection(`auth_${suffix}`)
+			const cleanupLabel = registry.track(`mongodb-collection-${++sequence}`, async () => {
+				await collection.deleteMany({})
+			})
+			registry.addDependency(closeLabel, cleanupLabel)
+			return createMongoAuthStore(collection)
 		}
 		if (backend === 'redis') {
 			const mod = await load('redis')

@@ -131,7 +131,9 @@ ke scope produksi; tidak ada dependency runtime atau driver DB baru.
 ## Verifikasi backend
 
 Fase 13.8 memakai driver doubles untuk lifecycle, CAS, recovery, dan tipe publik.
-`better-sqlite3`, `redis`, `mongodb`, dan `@nekodb/client` tidak tersedia pada
-lingkungan validasi; native driver behavior, durability, reconnect, dan close
-nyata **NOT RUN**. Jangan menyebut backend tersebut production-verified hanya
+Fase 13.12 memverifikasi SQLite native melalui `better-sqlite3`, termasuk
+conditional write, fallback `SELECT changes()`, dan close wrapper. Redis,
+MongoDB, dan NekoDB tetap **NOT RUN** tanpa instance test terisolasi; suite
+MongoDB dan workflow integrasi sudah tersedia untuk environment yang
+menyediakannya. Jangan menyebut backend tersebut production-verified hanya
 karena test doubles lulus.

@@ -30,9 +30,7 @@ export const closeAuthState = (auth: AuthenticationStateResult): Promise<void> =
 
 /** Preserves the historical `{ state, saveCreds }` runtime shape and return
  * type while keeping the managed lifecycle reachable through `closeAuthState`. */
-export const exposeLegacyAuthenticationState = (
-	managed: ManagedAuthenticationState
-): AuthenticationStateResult => {
+export const exposeLegacyAuthenticationState = (managed: ManagedAuthenticationState): AuthenticationStateResult => {
 	const legacy: AuthenticationStateResult = {
 		state: managed.state,
 		saveCreds: managed.saveCreds

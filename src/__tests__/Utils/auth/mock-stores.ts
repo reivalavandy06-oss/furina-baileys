@@ -36,7 +36,10 @@ export const makeFakeSqlite = () => {
 			)
 		}
 		if (sql.startsWith('SELECT changes()')) {
-			return statement(() => [{ changes: lastChanges }], () => undefined)
+			return statement(
+				() => [{ changes: lastChanges }],
+				() => undefined
+			)
 		}
 		if (sql.includes('SELECT value FROM')) {
 			return statement(
@@ -98,6 +101,13 @@ export const makeFakeSqlite = () => {
 export const makeFakeRedis = () => {
 	const rows = new Map<string, string>()
 
+	const toRegExp = (pattern: string) => {
+		const escaped = pattern.replace(/[.+^${}()|[\]\\]/g, '\\$&')
+		return new RegExp(`^${escaped.replace(/\*/g, '.*').replace(/\?/g, '.')}$`)
+	}
+
+	const scanPageSize = 10
+
 	return {
 		connect: async () => undefined,
 		get: async (key: string) => rows.get(key) ?? null,
@@ -112,6 +122,25 @@ export const makeFakeRedis = () => {
 			}
 
 			return deleted
+		},
+		unlink: async (keys: string[]) => {
+			let deleted = 0
+			for (const key of keys) {
+				if (rows.delete(key)) deleted += 1
+			}
+
+			return deleted
+		},
+		scan: async (cursor: string, options?: { MATCH?: string; COUNT?: number }) => {
+			const keys = [...rows.keys()]
+			const start = Number(cursor) || 0
+			const page = keys.slice(start, start + scanPageSize)
+			const next = start + scanPageSize < keys.length ? String(start + scanPageSize) : '0'
+			const matcher = options?.MATCH ? toRegExp(options.MATCH) : null
+			return {
+				cursor: next,
+				keys: matcher ? page.filter(key => matcher.test(key)) : page
+			}
 		},
 		keys: async (pattern: string) => [...rows.keys()].filter(key => key.startsWith(pattern.slice(0, -1))),
 		quit: async () => undefined
@@ -147,8 +176,8 @@ export const makeFakeMongoCollection = () => {
 			return { modifiedCount: 1 }
 		},
 		deleteOne: async (query: unknown) => {
-			rows.delete(keyOf(query))
-			return { deletedCount: 1 }
+			const deleted = rows.delete(keyOf(query))
+			return { deletedCount: deleted ? 1 : 0 }
 		},
 		deleteMany: async () => {
 			rows.clear()

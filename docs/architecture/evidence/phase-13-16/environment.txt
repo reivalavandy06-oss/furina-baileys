@@ -1,0 +1,12 @@
+Timestamp: 2026-11-24T08:47:41Z
+Branch: feat/reliability-audit
+HEAD: d352727bbae2e33d687ad7c68c9145ac562d1fb6
+Node: v22.23.5
+Yarn: 4.18.1
+OS: Linux 6.17.0-PRoot-Distro aarch64
+Architecture: aarch64
+CPU features: fp asimd evtstrm aes pmull sha1 sha2 crc32 cpuid
+Redis server: Redis server v=7.4.2 sha=00000000:1 malloc=libc bits=64 build=5b36540cbd2bfbb1
+SQLite driver: better-sqlite3@13.2.0 (temporary /tmp install, not repository metadata)
+MongoDB driver attempted: mongodb@7.0.15 metadata; mongodb@6.0.16, 5.0.31, 4.4.29, 4.2.24 binaries tested
+NekoDB client attempted: @nekodb/client@1.1.7 (temporary /tmp install)

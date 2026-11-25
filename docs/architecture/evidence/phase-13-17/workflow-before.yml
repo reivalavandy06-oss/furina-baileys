@@ -1,0 +1,87 @@
+name: Auth Store Integration
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - 'src/Utils/auth-store.ts'
+      - 'src/Utils/auth/**'
+      - 'src/Types/Auth.ts'
+      - 'src/__tests__/Utils/auth-integration/**'
+      - 'scripts/check-integration-env.ts'
+      - 'package.json'
+      - 'yarn.lock'
+      - '.github/workflows/auth-store-integration.yml'
+  push:
+    branches:
+      - master
+    paths:
+      - 'src/Utils/auth-store.ts'
+      - 'src/Utils/auth/**'
+      - 'src/Types/Auth.ts'
+      - 'src/__tests__/Utils/auth-integration/**'
+      - 'scripts/check-integration-env.ts'
+      - 'package.json'
+      - 'yarn.lock'
+      - '.github/workflows/auth-store-integration.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  integration:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    services:
+      redis:
+        image: redis:7.4-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+      mongodb:
+        image: mongo:8.0
+        ports:
+          - 27017:27017
+        options: >-
+          --health-cmd "mongosh --quiet --eval 'db.runCommand({ ping: 1 }).ok'"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+
+    env:
+      FURINA_TEST_REQUIRED_BACKENDS: sqlite,redis,mongodb
+      FURINA_TEST_SQLITE_DIR: ${{ runner.temp }}/furina-auth-it
+      FURINA_TEST_REDIS_URL: redis://127.0.0.1:6379
+      FURINA_TEST_MONGODB_URL: mongodb://127.0.0.1:27017
+      NODE_OPTIONS: --max-old-space-size=2048
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24.22.3
+
+      - name: Restore Yarn Cache
+        uses: actions/cache@v4
+        with:
+          path: .yarn/cache
+          key: ${{ runner.os }}-yarn-${{ hashFiles('**/yarn.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-yarn-
+
+      - name: Install dependencies
+        run: node .yarn/releases/yarn-4.18.1.cjs install --immutable
+
+      - name: Install optional test drivers
+        run: npm install --no-save --package-lock=false better-sqlite3@13.2.0 redis@6.4.0 mongodb@7.9.1
+
+      - name: Run real backend integration
+        run: node --import tsx scripts/check-integration-env.ts --run

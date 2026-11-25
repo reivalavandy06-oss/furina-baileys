@@ -1,0 +1,11 @@
+Timestamp: 2026-11-24T10:27:45Z
+pwd: /root/furina-baileys
+Branch: feat/reliability-audit
+HEAD: d352727bbae2e33d687ad7c68c9145ac562d1fb6
+Node: v22.23.5
+Yarn: 4.18.1
+OS: Linux 6.17.0-PRoot-Distro aarch64
+Docker: not found
+Podman: not found
+GH CLI: not found
+GH auth status evaluated without printing token: not executed at discovery if unavailable

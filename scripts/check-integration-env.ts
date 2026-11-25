@@ -18,7 +18,7 @@ import {
 	type BackendName
 } from '../src/__tests__/Utils/auth-integration/availability.ts'
 
-const BACKENDS: BackendName[] = ['nekodb', 'sqlite', 'redis']
+const BACKENDS: BackendName[] = ['mongodb', 'nekodb', 'sqlite', 'redis']
 
 /** Blockers are read only through the availability guard, never off the union. */
 const blocker = (check: BackendCheck): string | null => (check.available ? null : check.reason)
@@ -56,6 +56,7 @@ const runIntegration = () =>
 
 const main = async () => {
 	const checks: Record<BackendName, BackendCheck> = {
+		mongodb: await CHECKS.mongodb(),
 		nekodb: await CHECKS.nekodb(),
 		sqlite: await CHECKS.sqlite(),
 		redis: await CHECKS.redis()
@@ -64,6 +65,26 @@ const main = async () => {
 	printMatrix(checks)
 
 	if (!process.argv.includes('--run')) return
+
+	const required = (process.env.FURINA_TEST_REQUIRED_BACKENDS ?? '')
+		.split(',')
+		.map(value => value.trim())
+		.filter(Boolean)
+	const unknown = required.filter(name => !BACKENDS.includes(name as BackendName))
+	if (unknown.length) {
+		console.error(`\nUnknown required backend(s): ${unknown.join(', ')}`)
+		console.error(`Valid backends: ${BACKENDS.join(', ')}`)
+		process.exit(2)
+	}
+	const unavailable = required.filter(name => !checks[name as BackendName].available)
+	if (unavailable.length) {
+		console.log(`\nRequired backend(s) unavailable: ${unavailable.join(', ')}`)
+		for (const backend of unavailable) {
+			console.log(`  - ${backend}: ${blocker(checks[backend as BackendName])}`)
+		}
+		console.log('\nIntegration tests were NOT RUN. Required infrastructure is incomplete.')
+		process.exit(2)
+	}
 
 	const running = BACKENDS.filter(backend => checks[backend].available)
 	const blocked = BACKENDS.filter(backend => !checks[backend].available)

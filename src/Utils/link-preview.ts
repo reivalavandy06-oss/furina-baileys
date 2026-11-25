@@ -19,10 +19,7 @@ interface HeadersObject {
 	getSetCookie: () => string[]
 	has: (name: string) => boolean
 	set: (name: string, value: string) => void
-	forEach: (
-		callbackfn: (value: string, key: string, parent: HeadersObject) => void,
-		thisArg?: unknown
-	) => void
+	forEach: (callbackfn: (value: string, key: string, parent: HeadersObject) => void, thisArg?: unknown) => void
 }
 
 type RequestHeadersInit = Record<string, string> | Array<[string, string]> | HeadersObject
@@ -84,7 +81,7 @@ export const getUrlInfo = async (
 					return false
 				}
 			},
-			headers: opts.fetchOpts?.headers as {}
+			headers: opts.fetchOpts?.headers as unknown as Record<string, string>
 		})
 		if (info && 'title' in info && info.title) {
 			const [image] = info.images

@@ -15,7 +15,10 @@ const makeDriver = (mode: ResultMode, supportChanges = true) => {
 	const prepare = (sql: string) => {
 		if (sql.startsWith('SELECT changes()')) {
 			if (!supportChanges) throw new Error('changes() unsupported')
-			return statement(() => [{ changes: lastChanges }], () => undefined)
+			return statement(
+				() => [{ changes: lastChanges }],
+				() => undefined
+			)
 		}
 		if (sql.includes('SELECT value FROM')) {
 			return statement(
@@ -27,7 +30,10 @@ const makeDriver = (mode: ResultMode, supportChanges = true) => {
 			)
 		}
 		if (sql.includes('SELECT key FROM')) {
-			return statement(() => [...rows.keys()].map(key => ({ key })), () => undefined)
+			return statement(
+				() => [...rows.keys()].map(key => ({ key })),
+				() => undefined
+			)
 		}
 		if (sql.includes('INSERT OR REPLACE INTO')) {
 			return statement(

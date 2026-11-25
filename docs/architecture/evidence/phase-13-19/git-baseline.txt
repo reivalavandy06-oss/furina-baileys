@@ -1,0 +1,58 @@
+Timestamp: 2026-11-24T17:32:31Z
+PWD: /root/furina-baileys
+Branch: feat/reliability-audit
+HEAD: d352727bbae2e33d687ad7c68c9145ac562d1fb6
+Node: v22.23.5
+Yarn: 4.18.1
+--- git status --short ---
+ M AGENTS.md
+ M docs/index.md
+ M docs/testing/auth-store-integration.md
+ M docs/upgrade-notes.md
+ M scripts/check-integration-env.ts
+ M src/Utils/auth-store.ts
+ M src/Utils/auth/index.ts
+ M src/Utils/auth/owned-resource.ts
+ M src/Utils/link-preview.ts
+ M src/__tests__/Utils/auth-integration/availability.ts
+ M src/__tests__/Utils/auth-integration/migration.integration.ts
+ M src/__tests__/Utils/auth-integration/readiness.test.ts
+ M src/__tests__/Utils/auth-integration/redis.integration.ts
+ M src/__tests__/Utils/auth-integration/sqlite.integration.ts
+ M src/__tests__/Utils/auth-integration/stores.ts
+ M src/__tests__/Utils/auth/auth-store-conformance.test.ts
+ M src/__tests__/Utils/auth/mock-stores.ts
+ M src/__tests__/Utils/auth/sqlite-cas.test.ts
+?? .github/workflows/auth-store-integration.yml
+?? docs/architecture/evidence/
+?? docs/architecture/phase-13-10-native-backend-integration.md
+?? docs/architecture/phase-13-11-node-compatibility-matrix.md
+?? docs/architecture/phase-13-12-auth-store-integration-readiness.md
+?? docs/architecture/phase-13-13-authstore-contract-remediation.md
+?? docs/architecture/phase-13-14-native-backend-verification.md
+?? docs/architecture/phase-13-15-redis-migration-remediation.md
+?? docs/architecture/phase-13-16-mongodb-nekodb-native-verification.md
+?? docs/architecture/phase-13-17-ci-native-reliability.md
+?? docs/architecture/phase-13-18-security-data-integrity.md
+?? docs/architecture/phase-13-9-post-remediation-audit.md
+?? src/__tests__/Utils/auth-integration/mongodb.integration.ts
+--- git diff --name-only ---
+AGENTS.md
+docs/index.md
+docs/testing/auth-store-integration.md
+docs/upgrade-notes.md
+scripts/check-integration-env.ts
+src/Utils/auth-store.ts
+src/Utils/auth/index.ts
+src/Utils/auth/owned-resource.ts
+src/Utils/link-preview.ts
+src/__tests__/Utils/auth-integration/availability.ts
+src/__tests__/Utils/auth-integration/migration.integration.ts
+src/__tests__/Utils/auth-integration/readiness.test.ts
+src/__tests__/Utils/auth-integration/redis.integration.ts
+src/__tests__/Utils/auth-integration/sqlite.integration.ts
+src/__tests__/Utils/auth-integration/stores.ts
+src/__tests__/Utils/auth/auth-store-conformance.test.ts
+src/__tests__/Utils/auth/mock-stores.ts
+src/__tests__/Utils/auth/sqlite-cas.test.ts
+--- git diff --cached --name-only ---
