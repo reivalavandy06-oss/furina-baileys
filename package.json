@@ -124,7 +124,7 @@
   },
   "resolutions": {
     "ajv@npm:^6.12.4": "^6.14.0",
-    "basic-ftp": "6.2.1",
+    "basic-ftp": "6.2.4",
     "brace-expansion@npm:^1.1.7": "^1.1.13",
     "brace-expansion@npm:^2.0.1": "^2.0.3",
     "flatted": "^3.4.2",

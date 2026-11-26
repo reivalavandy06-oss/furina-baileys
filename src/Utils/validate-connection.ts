@@ -14,15 +14,21 @@ import { encodeBigEndian } from './generics'
 import { createSignalIdentity } from './signal'
 
 const getUserAgent = (config: SocketConfig): proto.ClientPayload.IUserAgent => {
+	const browserName = config.browser[1].toLocaleLowerCase()
+	let platform = proto.ClientPayload.UserAgent.Platform.WEB
+	if (browserName.includes('smb_android')) {
+		platform = proto.ClientPayload.UserAgent.Platform.SMB_ANDROID
+	} else if (browserName.includes('android')) {
+		platform = proto.ClientPayload.UserAgent.Platform.ANDROID
+	}
+
 	return {
 		appVersion: {
 			primary: config.version[0],
 			secondary: config.version[1],
 			tertiary: config.version[2]
 		},
-		platform: config.browser[1].toLocaleLowerCase().includes('android')
-			? proto.ClientPayload.UserAgent.Platform.ANDROID
-			: proto.ClientPayload.UserAgent.Platform.WEB,
+		platform,
 		releaseChannel: proto.ClientPayload.UserAgent.ReleaseChannel.RELEASE,
 		osVersion: '0.1',
 		device: 'Desktop',
@@ -60,7 +66,8 @@ const getClientPayload = (config: SocketConfig) => {
 		userAgent: getUserAgent(config)
 	}
 
-	if (!config.browser[1].toLocaleLowerCase().includes('android')) {
+	const browserName = config.browser[1].toLocaleLowerCase()
+	if (browserName !== 'android') {
 		payload.webInfo = getWebInfo(config)
 	}
 
@@ -89,6 +96,9 @@ const getPlatformType = (platform: string): proto.DeviceProps.PlatformType => {
 	const platformType = platform.toUpperCase()
 	if (platformType === 'ANDROID') {
 		return proto.DeviceProps.PlatformType.ANDROID_PHONE
+	}
+	if (platformType === 'SMB_ANDROID') {
+		return proto.DeviceProps.PlatformType.CHROME
 	}
 
 	return (

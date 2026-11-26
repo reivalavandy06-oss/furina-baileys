@@ -6,15 +6,21 @@ Baileys versi Furina untuk membuat bot WhatsApp dengan lebih banyak fitur, lebih
 
 Fork dari [WhiskeySockets/Baileys](https://github.com/WhiskeySockets/Baileys) dengan lapisan produksi: stabilitas koneksi, broadcast CRM anti-ban, tracking delivery, dan button interaktif.
 
-[![npm version](https://img.shields.io/npm/v/@vanzzz/furina-baileys.svg)](https://www.npmjs.com/package/@vanzzz/furina-baileys)
-[![License](https://img.shields.io/npm/l/@vanzzz/furina-baileys.svg)](https://github.com/reivalavandy06-oss/furina-baileys/blob/master/LICENSE)
-[![TypeScript](https://img.shields.io/badge/typescript-5.9-blue.svg)](https://www.typescriptlang.org/)
-[![Dual CJS/ESM](https://img.shields.io/badge/module-dual%20CJS%2FESM-brightgreen.svg)](package.json)
+<p align="center">
+  <a href="https://www.npmjs.com/package/@vanzzz/furina-baileys"><img alt="npm latest" src="https://img.shields.io/npm/v/@vanzzz/furina-baileys/latest.svg"></a>
+  <a href="https://www.npmjs.com/package/@vanzzz/furina-baileys"><img alt="npm next" src="https://img.shields.io/npm/v/@vanzzz/furina-baileys/next.svg"></a>
+  <a href="https://nodejs.org/"><img alt="Node.js >= 22.0.0" src="https://img.shields.io/badge/node-%3E%3D22.0.0-brightgreen.svg"></a>
+  <a href="LICENSE"><img alt="License Apache-2.0" src="https://img.shields.io/badge/license-Apache--2.0-blue.svg"></a>
+  <a href="https://www.typescriptlang.org/"><img alt="TypeScript" src="https://img.shields.io/badge/typescript-5.9-blue.svg"></a>
+  <a href="package.json"><img alt="Dual CJS/ESM" src="https://img.shields.io/badge/module-dual%20CJS%2FESM-brightgreen.svg"></a>
+</p>
 
-`v1.7.0-furina-rc.1` · Node.js >= 22.0.0 (Node.js 20 sudah End-of-Life)
+<p align="center"><code>v1.7.0-furina-rc.1</code> · Node.js >= 22.0.0 (Node.js 20 sudah End-of-Life)</p>
 
 > [!CAUTION]
-> Baileys 7.0.0 memperkenalkan breaking changes. Baca [migration guide upstream](https://whiskey.so/migrate-latest) sebelum naik versi.
+> **Breaking changes:** Baileys 7.0.0 memperkenalkan perubahan besar pada koneksi,
+> `WAProto`, LID, dan Auth State. Baca [panduan migrasi lengkap](docs/upgrade-notes.md)
+> dan [migration guide upstream](https://whiskey.so/migrate-latest) sebelum naik versi.
 
 ---
 
@@ -75,7 +81,69 @@ pnpm add @vanzzz/furina-baileys
 
 ---
 
-## 🚀 Quick Start
+## 🌍 Quick Start (Multi-Platform & Akun)
+
+Semua contoh memakai ESM, sesi terpisah per mode, dan nomor contoh yang harus diganti.
+Simpan setiap sesi di folder berbeda; jangan menyalin folder sesi antar mode.
+
+```javascript
+import { Browsers, makeWASocket, useMultiFileAuthState } from '@vanzzz/furina-baileys'
+
+async function start(session, browser, options = {}) {
+  const { state, saveCreds } = await useMultiFileAuthState(session)
+  const sock = makeWASocket({ auth: state, browser, ...options })
+
+  sock.ev.on('creds.update', saveCreds)
+  sock.ev.on('connection.update', ({ connection, qr, lastDisconnect }) => {
+    if (qr) console.log('QR:', qr)
+    if (connection === 'close') console.log('Terputus:', lastDisconnect?.error)
+    if (connection === 'open') console.log('Terhubung:', sock.user?.name)
+  })
+
+  return sock
+}
+```
+
+### Linux / Ubuntu (disarankan untuk server & VPS)
+
+Preset ini kompatibel untuk WhatsApp Messenger reguler maupun WhatsApp Business.
+
+```javascript
+const sock = await start('session-ubuntu', Browsers.ubuntu('Chrome'))
+```
+
+### Windows & macOS Desktop
+
+Aktifkan `syncFullHistory: true` bila bot membutuhkan riwayat chat awal.
+
+```javascript
+const sockWindows = await start('session-windows', Browsers.windows('Desktop'), {
+  syncFullHistory: true
+})
+const sockMac = await start('session-macos', Browsers.macOS('Desktop'), {
+  syncFullHistory: true
+})
+```
+
+### Mode Pendamping Android (eksperimental)
+
+```javascript
+// WhatsApp Messenger reguler
+const sockAndroid = await start('session-android', Browsers.android('Chrome'))
+
+// WhatsApp Business (SMB_ANDROID)
+const sockBusiness = await start('session-business', Browsers.businessAndroid('Chrome'))
+```
+
+> [!WARNING]
+> Mode `android` dan `businessAndroid` bersifat eksperimental. Pairing harus dimulai
+> dari folder sesi kosong; folder sesi WhatsApp Web lama tidak dapat dipakai ulang.
+> Gunakan nomor cadangan terlebih dahulu dan siapkan jalur pairing ulang bila sesi
+> ditolak atau terputus.
+
+---
+
+## 📦 Contoh Penggunaan CommonJS (require)
 
 ### CommonJS (require)
 

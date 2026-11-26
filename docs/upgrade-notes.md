@@ -2,21 +2,139 @@
 
 [Indeks](index.md) · [Auth Store](auth-stores.md) · [Audit kompatibilitas Fase 13.7](architecture/api-compatibility-audit.md)
 
-Dokumen ini menjelaskan perubahan pada branch `feat/reliability-audit`. Branch ini
-**belum tentu sama dengan package npm `latest`** (`1.6.0-furina`). Jangan menganggap
-fitur yang hanya ada di branch sudah tersedia dari npm sampai rilis berikutnya
-dipublikasikan oleh maintainer. Nomor versi package tidak diubah oleh dokumen ini.
+Dokumen ini menjelaskan perubahan pada jalur rilis `1.7.0-furina` (termasuk
+`1.7.0-furina-rc.1`). Isi branch pengembangan **belum tentu sama dengan package npm
+`latest`**. Jangan menganggap fitur yang hanya ada di branch sudah tersedia dari npm
+sampai rilis berikutnya dipublikasikan oleh maintainer. Nomor versi package tidak
+diubah oleh dokumen ini.
 
 ## Node.js
 
-Package sekarang membutuhkan **Node.js `^20.19.0 || >=22.12.0`**. Build CJS memuat
-shared `WAProto` yang berupa ESM, sehingga bergantung pada `require(esm)` dan
-module syntax detection yang aktif secara default mulai Node 20.19 dan 22.12.
-Node 21 dan Node 22.0–22.11 tidak termasuk range yang didukung.
+Package membutuhkan **Node.js >= 22.0.0**. Node.js 20 sudah End-of-Life dan tidak
+lagi didukung. Build CJS memuat shared `WAProto` yang berupa ESM, sehingga runtime
+modern dengan dukungan `require(esm)` diperlukan.
 
-Hasil pengujian Fase 13.8: Node 20.20.2 dan 22.23.5 lulus CJS/ESM. Binary Node
-20.19.0 dan 20.0.0 tidak tersedia, jadi versi exact tersebut **NOT RUN**. Node 20.0
-sampai 20.18 tidak memiliki loader default yang dibutuhkan dan tidak didukung.
+## Panduan Migrasi Lengkap dari Upstream Baileys v6 ke v7 (`7.0.0-rc14`) & `1.7.0-furina`
+
+Bagian ini merangkum perubahan yang perlu diperiksa saat memindahkan bot dari
+upstream Baileys v6 ke jalur `7.0.0-rc14` / `1.7.0-furina`. Tidak semua perubahan
+kompatibel secara otomatis; uji ulang pairing, penyimpanan sesi, dan alur pesan.
+
+### ES Modules dan Node.js
+
+- Gunakan **Node.js >= 22.0.0**. Node.js 20 sudah End-of-Life.
+- Upstream v7 berorientasi ESM. Paket ini tetap menyediakan **dual CJS/ESM**:
+  `lib/esm/package.json` bertipe `module`, `lib/cjs/package.json` bertipe
+  `commonjs`, dan root package tidak dipaksa menjadi `"type": "module"`.
+- `import` dan `require` sama-sama didukung. Jangan mencampur default export lama
+  dengan named export baru; periksa ulang import `makeWASocket`, `proto`, dan
+  helper Auth Store.
+
+### LID (`@lid`) vs Phone Number (`@s.whatsapp.net`)
+
+- Identitas tidak lagi selalu berupa phone-number JID. Kontak dapat memakai
+  **LID** (`@lid`) atau **PN** (`@s.whatsapp.net`).
+- Jangan membandingkan JID mentah untuk menentukan identitas yang sama. Gunakan
+  helper JID dan resolver LID ↔ PN yang disediakan library.
+- Mapping LID/PN disimpan di Auth State sebagai Signal key `lid-mapping`, dengan
+  entri balik `_reverse`. Jangan menghapus, memfilter, atau memigrasikan key ini
+  secara manual. Jika mapping hilang, sesi dapat gagal resolve kontak atau
+  mengalami error pengiriman.
+- Backend Auth Store harus mempertahankan seluruh key `lid-mapping` bersama
+  `creds` dan Signal key lainnya.
+
+### Struktur `WAProto`, `Long`, dan `whatsapp-rust-bridge`
+
+- Field protobuf 64-bit dapat berupa `number` atau objek `Long`. Kode lama yang
+  memanggil `.hydrate()` pada field tersebut harus diperbarui; gunakan helper
+  `toNumber` atau API protobufjs yang sesuai. Jangan mengarang field baru.
+- Package bergantung pada `whatsapp-rust-bridge` `0.5.5`. Bridge bersifat ESM-only,
+  sehingga build CJS tidak memuatnya secara langsung; jalur LT hash tetap memakai
+  implementasi JS yang kompatibel. Jangan mengubah algoritma atau format session
+  Signal hanya untuk menghindari bridge.
+- File generated `WAProto` tidak boleh diedit manual. Regenerasi memakai
+  `yarn gen:protobuf` dan `proto-extract/`.
+
+### Trusted Contact (TC) Token
+
+- Token TC disimpan di Auth State sebagai Signal key `tctoken`, termasuk entry
+  index internal. Token dapat diterbitkan ulang saat device identity berubah.
+- Jangan menghapus key `tctoken` saat logout ringan, reconnect, atau migrasi.
+  Hapus hanya jika pengguna memang mengakhiri sesi dan melakukan pairing ulang.
+- Error 463 biasanya berarti akun dibatasi atau token TC untuk kontak tidak ada;
+  jangan langsung menganggap sesi rusak.
+
+### `printQRInTerminal`
+
+- `printQRInTerminal` sudah deprecated dan tidak lagi mencetak QR secara otomatis.
+- Tangani event `connection.update` sendiri: tampilkan `qr`, tangani `connection`
+  `open`/`close`, lalu baca `lastDisconnect.error` untuk keputusan reconnect.
+
+### Perbaikan keamanan GHSA-qvv5-jq5g-4cgg
+
+- Advisory ini menyentuh validasi **placeholder resend** dan **app-state sync**.
+- Placeholder resend hanya diminta untuk pesan unavailable yang memenuhi filter
+  tipe dan batas umur (maksimum 14 hari).
+- Verifikasi MAC app-state tersedia melalui `appStateMacVerification` untuk
+  snapshot/patch. Jangan mematikan validasi tambahan tanpa memahami konsekuensi
+  integritas state.
+
+### Migrasi Auth Store
+
+Wrapper berikut tetap mengembalikan `{ state, saveCreds }`:
+
+```javascript
+import {
+  closeAuthState,
+  makeWASocket,
+  useMongoDBAuthState,
+  useNekoDBAuth,
+  useRedisAuthState,
+  useSQLiteAuthState
+} from '@vanzzz/furina-baileys'
+
+// Library memiliki koneksi: tutup dengan closeAuthState.
+const sqliteAuth = await useSQLiteAuthState('./', {
+  path: './furina-auth.db',
+  table: 'furina_auth'
+})
+
+// Wrapper Redis dan MongoDB juga memiliki koneksi internal.
+const redisAuth = await useRedisAuthState({
+  url: 'redis://127.0.0.1:6379',
+  table: 'furina:auth'
+})
+const mongoAuth = await useMongoDBAuthState({
+  url: 'mongodb://127.0.0.1:27017',
+  database: 'furina',
+  table: 'auth'
+})
+
+// NekoDB meminjam instance milik caller; caller yang menutup koneksi.
+// const db = new NekoDB({ host, username, password })
+const nekoAuth = await useNekoDBAuth(db, 'my_session')
+
+const sock = makeWASocket({ auth: sqliteAuth.state })
+sock.ev.on('creds.update', sqliteAuth.saveCreds)
+
+try {
+  // ...jalankan bot...
+} finally {
+  await sock.end()
+  await closeAuthState(sqliteAuth)
+  await closeAuthState(redisAuth)
+  await closeAuthState(mongoAuth)
+  // Jangan panggil closeAuthState(nekoAuth); tutup db milik caller.
+}
+```
+
+- `closeAuthState` hanya untuk wrapper yang memiliki koneksi. Wrapper borrowed
+  (`useNekoDBAuth`, `makeAuthStateFromStore`) ditolak.
+- Migrasi/restore bersifat **best-effort dan non-atomic** kecuali backend
+  menyediakan jaminan lebih kuat. Hentikan writer, backup source dan destination,
+  lalu lakukan cutover eksplisit.
+- Jangan menganggap `sock.end()` menunggu `saveCreds` atau menutup Auth Store.
+- Jangan memakai satu koleksi/tabel/folder bersama tanpa namespace yang jelas.
 
 ## Auth State wrapper
 

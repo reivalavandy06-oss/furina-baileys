@@ -100,7 +100,7 @@ export const makeSocket = (config: SocketConfig) => {
 
 	if (browser[1].toLocaleLowerCase().includes('android')) {
 		logger.warn(
-			'⚠️ Using the Android browser is experimental and may lead to unexpected behavior. Use at your own risk.'
+			'⚠️ Using Android or SMB_ANDROID (WhatsApp Business) browser mode is experimental and may lead to unexpected behavior. Use at your own risk.'
 		)
 	}
 

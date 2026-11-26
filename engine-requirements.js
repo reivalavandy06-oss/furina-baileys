@@ -1,11 +1,11 @@
-const [major, minor] = process.versions.node.split('.').map(part => parseInt(part, 10));
-const supported = major === 20 ? minor >= 19 : major >= 22 && (major > 22 || minor >= 12);
+const [major] = process.versions.node.split('.').map(part => parseInt(part, 10));
+const supported = major >= 22;
 
 if (!supported) {
   console.error(
-    `\n❌ This package requires Node.js 20.19+ or 22.12+ for built-in ESM loading.\n` +
+    `\n❌ This package requires Node.js >= 22.0.0.\n` +
     `   You are using Node.js ${process.versions.node}.\n` +
-    `   Please upgrade Node.js to proceed.\n`
+    `   Node.js 20 is End-of-Life. Please upgrade Node.js to proceed.\n`
   );
   process.exit(1);
 }
