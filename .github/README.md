@@ -18,7 +18,7 @@ Fork dari [WhiskeySockets/Baileys](https://github.com/WhiskeySockets/Baileys) de
 <p align="center"><code>v1.7.0-furina-rc.2</code> · Node.js >= 22.0.0 (Node.js 20 sudah End-of-Life)</p>
 
 > [!CAUTION]
-> **Breaking changes:** Baileys 7.0.0 memperkenalkan perubahan besar pada koneksi,
+> **Breaking changes:** Baileys v7 (`7.0.0-rc14`) memperkenalkan perubahan besar pada koneksi,
 > `WAProto`, LID, dan Auth State. Baca [panduan migrasi lengkap](../docs/upgrade-notes.md)
 > dan [migration guide upstream](https://whiskey.so/migrate-latest) sebelum naik versi.
 
