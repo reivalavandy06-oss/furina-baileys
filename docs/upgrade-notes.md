@@ -3,7 +3,7 @@
 [Indeks](index.md) · [Auth Store](auth-stores.md) · [Audit kompatibilitas Fase 13.7](architecture/api-compatibility-audit.md)
 
 Dokumen ini menjelaskan perubahan pada jalur rilis `1.7.0-furina` (termasuk
-`1.7.0-furina-rc.1`). Isi branch pengembangan **belum tentu sama dengan package npm
+`1.7.0-furina-rc.2`). Isi branch pengembangan **belum tentu sama dengan package npm
 `latest`**. Jangan menganggap fitur yang hanya ada di branch sudah tersedia dari npm
 sampai rilis berikutnya dipublikasikan oleh maintainer. Nomor versi package tidak
 diubah oleh dokumen ini.

@@ -15,7 +15,7 @@ Fork dari [WhiskeySockets/Baileys](https://github.com/WhiskeySockets/Baileys) de
   <a href="../package.json"><img alt="Dual CJS/ESM" src="https://img.shields.io/badge/module-dual%20CJS%2FESM-brightgreen.svg"></a>
 </p>
 
-<p align="center"><code>v1.7.0-furina-rc.1</code> · Node.js >= 22.0.0 (Node.js 20 sudah End-of-Life)</p>
+<p align="center"><code>v1.7.0-furina-rc.2</code> · Node.js >= 22.0.0 (Node.js 20 sudah End-of-Life)</p>
 
 > [!CAUTION]
 > **Breaking changes:** Baileys 7.0.0 memperkenalkan perubahan besar pada koneksi,

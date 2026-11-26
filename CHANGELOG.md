@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+## 1.7.0-furina-rc.2 - 2026-11-26
+
+### Added
+- **WhatsApp Business Android Preset (Experimental):** Added `Browsers.businessAndroid(browser)` (`SMB_ANDROID`) with preserved `webInfo` and `CHROME` companion platform registration for WhatsApp Business compatibility.
+- **Multi-Platform Quick Start:** Added ESM Quick Start guides for Linux/Ubuntu, Windows/macOS Desktop, and experimental Android/Business Android companion modes in `README.md`.
+
+### Changed
+- **Documentation & Migration Guide:** Expanded `docs/upgrade-notes.md` with complete migration guidance from upstream Baileys v6 to v7 (`7.0.0-rc14`), LID/PN identity mapping, Trusted Contact tokens, and `Node.js >= 22.0.0` alignment across `engine-requirements.js`.
+
+### Security
+- **Dependency Remediation:** Upgraded `basic-ftp` resolution to `6.2.4`, removed legacy `request` dependencies and duplicate lockfile in `proto-extract/`, and migrated `proto-extract/index.js` to native `fetch`.
+
 ## 1.7.0-furina-rc.1 - 2026-11-25
 
 ### Fixed
