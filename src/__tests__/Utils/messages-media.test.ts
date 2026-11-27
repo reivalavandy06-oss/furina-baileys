@@ -6,7 +6,13 @@ import * as path from 'path'
 import { Readable } from 'stream'
 import type { MediaConnInfo, SocketConfig } from '../../Types'
 import type { ILogger } from '../../Utils/logger'
-import { encryptedStream, getWAUploadToServer, type UploadParams, uploadWithNodeHttp } from '../../Utils/messages-media'
+import {
+	encryptedStream,
+	extractVideoThumb,
+	getWAUploadToServer,
+	type UploadParams,
+	uploadWithNodeHttp
+} from '../../Utils/messages-media'
 
 const createTempFile = async (content: string): Promise<string> => {
 	const filePath = path.join(os.tmpdir(), `test-upload-${Date.now()}.txt`)
@@ -484,5 +490,29 @@ describe('encryptedStream', () => {
 			expect(result.mediaKey).toBeDefined()
 			await cleanupFiles([result.encFilePath, result.originalFilePath])
 		}
+	})
+})
+
+describe('extractVideoThumb input validation', () => {
+	it('rejects injection in time', async () => {
+		await expect(
+			extractVideoThumb('in.mp4', 'out.jpg', '00:00:00; rm -rf /', { width: 32, height: 32 })
+		).rejects.toThrow()
+	})
+
+	it('rejects destPath starting with -', async () => {
+		await expect(extractVideoThumb('in.mp4', '-o evil.jpg', '00:00:00', { width: 32, height: 32 })).rejects.toThrow()
+	})
+
+	it('rejects empty path', async () => {
+		await expect(extractVideoThumb('', 'out.jpg', '00:00:00', { width: 32, height: 32 })).rejects.toThrow()
+	})
+
+	it('rejects null byte in path', async () => {
+		await expect(extractVideoThumb('in .mp4', 'out.jpg', '00:00:00', { width: 32, height: 32 })).rejects.toThrow()
+	})
+
+	it('rejects non-positive width', async () => {
+		await expect(extractVideoThumb('in.mp4', 'out.jpg', '00:00:00', { width: 0, height: 32 })).rejects.toThrow()
 	})
 })

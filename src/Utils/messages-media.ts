@@ -1,5 +1,5 @@
 import { Boom } from '@hapi/boom'
-import { exec } from 'child_process'
+import { execFile } from 'child_process'
 import * as Crypto from 'crypto'
 import { once } from 'events'
 import { createReadStream, createWriteStream, promises as fs, WriteStream } from 'fs'
@@ -115,22 +115,40 @@ export async function getMediaKeys(
 }
 
 /** Extracts video thumb using FFMPEG */
-const extractVideoThumb = async (
+export const extractVideoThumb = async (
 	path: string,
 	destPath: string,
 	time: string,
 	size: { width: number; height: number }
-) =>
-	new Promise<void>((resolve, reject) => {
-		const cmd = `ffmpeg -ss ${time} -i ${path} -y -vf scale=${size.width}:-1 -vframes 1 -f image2 ${destPath}`
-		exec(cmd, err => {
-			if (err) {
-				reject(err)
-			} else {
-				resolve()
+) => {
+	if (typeof path !== 'string' || path.length === 0 || path.includes('\0')) {
+		throw new Error('Invalid video path')
+	}
+	if (typeof destPath !== 'string' || destPath.length === 0 || destPath.includes('\0') || destPath.startsWith('-')) {
+		throw new Error('Invalid destination path')
+	}
+	if (typeof time !== 'string' || !/^(?:\d{1,2}:)?\d{1,2}:\d{2}(?:\.\d+)?$|^\d+(?:\.\d+)?$/.test(time)) {
+		throw new Error('Invalid time')
+	}
+	if (!Number.isInteger(size?.width) || size.width <= 0) {
+		throw new Error('Invalid size')
+	}
+
+	return new Promise<void>((resolve, reject) => {
+		execFile(
+			'ffmpeg',
+			['-ss', time, '-i', path, '-y', '-vf', `scale=${size.width}:-1`, '-vframes', '1', '-f', 'image2', destPath],
+			{ timeout: 30_000 },
+			err => {
+				if (err) {
+					reject(err)
+				} else {
+					resolve()
+				}
 			}
-		})
+		)
 	})
+}
 
 export const extractImageThumb = async (bufferOrFilePath: Readable | Buffer | string, width = 32) => {
 	// TODO: Move entirely to sharp, removing jimp as it supports readable streams

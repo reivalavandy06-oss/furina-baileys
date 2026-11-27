@@ -2,6 +2,20 @@
 
 ## Unreleased
 
+## 1.7.0-furina - 2026-11-27
+
+### Added
+- **WhatsApp Business Android Preset (Experimental):** Added `Browsers.businessAndroid(browser)` (`SMB_ANDROID`) with preserved `webInfo` and `CHROME` companion platform registration, verified via live WhatsApp Business pairing-code and two-way LID messaging tests.
+- **Multi-Platform Quick Start & Fork Metadata:** Added ESM Quick Start guides and detailed upstream fork parity metadata (`WhiskeySockets/Baileys v7.0.0-rc14`, commit `7e7b075`) in `README.md` and `.github/README.md`.
+
+### Changed
+- **Stable Promotion (`@latest`):** Promoted the `1.7.0-furina` release line (Node.js >= 22.0.0, dual CJS/ESM, upstream Baileys `7.0.0-rc14` parity, and Auth Store lifecycle helpers) from `@next` to `@latest`.
+- **Documentation & Migration Guide:** Expanded `docs/upgrade-notes.md` with complete migration guidance from upstream Baileys v6 to v7 (`7.0.0-rc14`), LID/PN identity mapping, Trusted Contact tokens, and `Node.js >= 22.0.0` alignment across `engine-requirements.js`.
+
+### Security
+- **Video Thumbnail Command Hardening:** Replaced `child_process.exec` with `child_process.execFile` and strict input validation (`path`, `destPath`, `time`, `size.width`) plus a 30s timeout in `extractVideoThumb` (`src/Utils/messages-media.ts`).
+- **Dependency Remediation:** Upgraded `basic-ftp` resolution to `6.2.4`, removed legacy `request` dependencies and duplicate lockfile in `proto-extract/`, and migrated `proto-extract/index.js` to native `fetch`.
+
 ## 1.7.0-furina-rc.2 - 2026-11-26
 
 ### Added

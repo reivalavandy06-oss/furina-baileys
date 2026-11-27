@@ -4,7 +4,7 @@
 
 Baileys versi Furina untuk membuat bot WhatsApp dengan lebih banyak fitur, lebih stabil, dan mudah dikustomisasi.
 
-Fork dari [WhiskeySockets/Baileys](https://github.com/WhiskeySockets/Baileys) dengan lapisan produksi: stabilitas koneksi, broadcast CRM anti-ban, tracking delivery, dan button interaktif.
+Fork aktif dari [WhiskeySockets/Baileys](https://github.com/WhiskeySockets/Baileys) berbasis upstream **`v7.0.0-rc14`** (commit `7e7b075`) dengan lapisan produksi: multi-backend Auth Store, broadcast CRM anti-ban, tracking delivery, AI Rich Message, dan dukungan WhatsApp Business companion.
 
 <p align="center">
   <a href="https://www.npmjs.com/package/@vanzzz/furina-baileys"><img alt="npm latest" src="https://img.shields.io/npm/v/@vanzzz/furina-baileys/latest.svg"></a>
@@ -15,12 +15,20 @@ Fork dari [WhiskeySockets/Baileys](https://github.com/WhiskeySockets/Baileys) de
   <a href="package.json"><img alt="Dual CJS/ESM" src="https://img.shields.io/badge/module-dual%20CJS%2FESM-brightgreen.svg"></a>
 </p>
 
-<p align="center"><code>v1.7.0-furina-rc.2</code> · Node.js >= 22.0.0 (Node.js 20 sudah End-of-Life)</p>
+<p align="center"><code>v1.7.0-furina</code> · Upstream Base: <code>WhiskeySockets/Baileys v7.0.0-rc14</code> · <code>Node.js >= 22.0.0</code></p>
 
 > [!CAUTION]
 > **Breaking changes:** Baileys v7 (`7.0.0-rc14`) memperkenalkan perubahan besar pada koneksi,
 > `WAProto`, LID, dan Auth State. Baca [panduan migrasi lengkap](docs/upgrade-notes.md)
 > dan [migration guide upstream](https://whiskey.so/migrate-latest) sebelum naik versi.
+
+### Informasi Versi & Basis Fork
+
+- **Versi Paket Fork:** `@vanzzz/furina-baileys@1.7.0-furina` (output dual CommonJS & ESM, TypeScript 5.9).
+- **Titik & Asal Fork Upstream:** Di-fork dari repositori resmi [WhiskeySockets/Baileys](https://github.com/WhiskeySockets/Baileys) pada tag rilis **[v7.0.0-rc14](https://github.com/WhiskeySockets/Baileys/releases/tag/v7.0.0-rc14)** (commit sinkronisasi `7e7b075`), yaitu rilis kandidat ke-14 dari generasi Baileys v7 yang menjadi titik potong terakhir sebelum pengembangan mandiri fork ini.
+- **Karakteristik Basis `v7.0.0-rc14`:** Merombak protokol WhatsApp Web ke arsitektur Baileys v7 dengan dukungan identitas ganda LID (`@lid`) dan PN (`@s.whatsapp.net`) lewat `remoteJidAlt`, pembaruan skema protobuf `WAProto`, mekanisme *Trusted Contact token* (`tctoken`), serta penyesuaian siklus sinkronisasi *App State* dan *Auth State*.
+- **Syarat Runtime Fork:** `Node.js >= 22.0.0` (Node.js 20 sudah End-of-Life; menggunakan dependensi murni JavaScript tanpa kompilasi native wajib sehingga ringan dijalankan di VPS maupun Termux Android).
+- **Lapisan Tambahan di Atas `v7.0.0-rc14`:** Multi-backend `AuthStore` (SQLite, MongoDB, Redis) + `closeAuthState`, CRM Broadcast & `RateLimiter` anti-ban, `MessageBuilder` (17 tipe tombol) & `RichMessageBuilder` (A2UI), integrasi donasi Trakteer/Saweria, preset eksperimental `Browsers.businessAndroid('Chrome')` (`SMB_ANDROID`), serta *hardening* keamanan (`basic-ftp` 6.2.4 dan `execFile` pada thumbnail video). Lihat [CHANGELOG.md](CHANGELOG.md) untuk riwayat lengkap.
 
 ---
 
